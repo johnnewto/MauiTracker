@@ -1,0 +1,5 @@
+import logging
+LOGGING_LEVEL = logging.INFO
+TILE_COLS = 340
+TILE_WIDTH = 100
+TILE_HEIGHT = 100
