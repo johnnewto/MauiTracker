@@ -16,6 +16,8 @@ import torch
 
 from motrackers import parameters as pms
 import logging
+from dataclasses import dataclass
+
 # logger = logging.getLogger()
 # logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
@@ -23,6 +25,40 @@ logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename
                     level=pms.LOGGING_LEVEL)
 logger = logging.getLogger(__name__)
 
+@dataclass
+class Images:
+    maxpool:int = 12
+    CMO_kernalsize = 3
+    full_rgb:np.array = None
+    small_rgb:np.array = None
+    full_gray:np.array = None
+    small_gray:np.array = None
+    minpool:np.array = None
+    minpool_f:np.array = None
+    last_minpool_f:np.array = None
+    cmo:np.array = None
+    mask:np.array = None
+    horizon:np.array = None
+
+    def set(self, image:np.array):
+        self.full_rgb = image
+        if self.full_rgb.ndim == 3:
+            # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
+            self.full_gray = self.full_rgb[:,:,1]
+
+        self.minpool = min_pool(self.full_gray, self.maxpool, self.maxpool)
+        small_gray = resize(self.full_gray, width=self.minpool.shape[1])
+        self.small_rgb = resize(self.full_rgb, width=self.minpool.shape[1])
+        self.small_gray = np.zeros_like(self.minpool, dtype='uint8')
+        n_rows = min(self.minpool.shape[0], small_gray.shape[0])
+        self.small_gray[:n_rows,:] = small_gray[:n_rows,:]
+        # self.small_gray = small_gray
+        self.minpool_f = np.float32(self.minpool )
+
+    def mask_sky(self):
+        self.mask = find_sky_2(self.minpool, threshold=80,  kernal_size=7)
+        self.cmo = BH_op(self.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
+        self.cmo[self.mask > 0] = 0
 
 class CMO_Peak(Detector):
     """
@@ -34,7 +70,7 @@ class CMO_Peak(Detector):
                  expected_peak_max=60,
                  peak_min_distance=10,
                  num_peaks = 10,
-                 maxpool=8,
+                 maxpool=12,
                  CMO_kernalsize=3,
                  track_boxsize = (160,80),
                  bboxsize=40,
@@ -54,8 +90,9 @@ class CMO_Peak(Detector):
         self.maxpool = maxpool
         self.CMO_kernalsize = CMO_kernalsize
         self.bboxsize = bboxsize
-        self.l_image_sf = None
-        self.cmo : np.ndarray = np.empty([2, 2])
+        self.image = Images(maxpool=maxpool)
+        # self.l_image_sf = None
+        # self.cmo : np.ndarray = np.empty([2, 2])
         x = np.arange(-10, 10 + 1, 10)
         y = np.arange(-10, 10 + 1, 10)
         self._xv, self._yv = np.meshgrid(x, y)
@@ -72,25 +109,21 @@ class CMO_Peak(Detector):
 
         super().__init__(object_names, confidence_threshold, draw_bboxes)
 
-    def align(self, image):
+    def set_max_pool(self, maxpool=12):
+        self.maxpool = maxpool
+        self.image.maxpool = self.maxpool
+        print(f'Setting maxpool = {self.maxpool}')
+
+    def align(self):
         """ Align this image to the last in order to keep tracking centers accurate"""
-        if image.ndim == 3:
-            # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
-            self.image_gry = image[:,:,1]
 
+        try:
+            ((sc, sr), _error) = cv2.phaseCorrelate(self.image.last_minpool_f, self.image.minpool_f)
+            self.image.last_minpool_f = self.image.minpool_f
+        except:
+            self.image.last_minpool_f = self.image.minpool_f
+            sc, sr = 0, 0
 
-        self.image_s = min_pool(self.image_gry, self.maxpool, self.maxpool)
-        image_gry_s = resize(self.image_gry, width=self.image_s.shape[1])
-        self.image_gry_s = np.zeros_like(self.image_s, dtype='uint8')
-        self.image_gry_s[:-1,:] = image_gry_s[:,:]
-
-        self.image_sf = np.float32(self.image_s)
-        if self.l_image_sf is None:
-            self.l_image_sf = self.image_sf
-            return (0, 0)
-
-        ((sc, sr), _error) = cv2.phaseCorrelate(self.l_image_sf, self.image_sf)
-        self.l_image_sf = self.image_sf
         return (round(sr*self.maxpool), round(sc*self.maxpool))
 
     def get_bb(self, img, pos, threshold=0.5):
@@ -115,20 +148,20 @@ class CMO_Peak(Detector):
             bbwh = [mask.shape[1]//2, mask.shape[0]//2, 0, 0]
         return bbwh
 
-    def forward(self, image):
+    def find_peaks(self):
 
-        self.cmo_s = BH_op(self.image_s, (self.CMO_kernalsize, self.CMO_kernalsize))
+        # self.image.cmo = BH_op(self.image.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
         # make it a bit more visible
 
-        # self.mask = mask_horizon(self.image_s, threshold=70)
-        self.mask = np.zeros_like(self.image_s, dtype='uint8')
-        # self.mask = find_sky_1(self.image_s, threshold=80,  kernal_size=7)
-        self.mask = find_sky_2(self.image_gry_s, threshold=80,  kernal_size=7)
-        self.cmo_s[self.mask > 0] = 0
+        # self.mask = mask_horizon(self.images.image_s, threshold=70)
+        # self.mask = np.zeros_like(self.image.small_gray, dtype='uint8')
+        # self.mask = find_sky_1(self.images.image_s, threshold=80,  kernal_size=7)
+        # self.image.mask = find_sky_2(self.image.minpool, threshold=80,  kernal_size=7)
+        # self.image.cmo[self.image.mask > 0] = 0
 
 
         threshold_abs = self.expected_peak_max*self.confidence_threshold
-        _pks = peak_local_max(self.cmo_s,
+        _pks = peak_local_max(self.image.cmo,
                               min_distance=self.peak_min_distance,
                               threshold_abs=threshold_abs,
                               num_peaks=self.num_peaks)
@@ -141,13 +174,15 @@ class CMO_Peak(Detector):
         pks = []
         bbwhs = []
         self.cmo_pk_vals = []
+
+        # get low res and full res peaks
         # gather all the tiles centered on the peak positions
         for i, (r, c) in enumerate(_pks):
 
             bs0 = round(self.bboxsize//2)
 
-            lowres_img = get_tile(self.image_s, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
-            lowres_cmo = get_tile(self.cmo_s, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
+            lowres_img = get_tile(self.image.small_gray, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
+            lowres_cmo = get_tile(self.image.cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
 
             self.lowres_img_tile_lst.append(lowres_img)
             self.lowres_cmo_tile_lst.append(lowres_cmo)
@@ -165,14 +200,14 @@ class CMO_Peak(Detector):
             # find more accurate peak position based on full size image
             r, c = r * self.maxpool, c * self.maxpool
 
-            img = get_tile(image, (r - bs, c - bs), (bs * 2, bs * 2))
+            img = get_tile(self.image.full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
             fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
             # l_cmo = self.cmo[r-bs:r+bs, c-bs:c+bs]
             (_r, _c) = np.unravel_index(fullres_cmo.argmax(), fullres_cmo.shape)
             r, c = r-bs+_r, c-bs+_c
             pks.append((r, c))
-            img = get_tile(image, (r - bs, c - bs), (bs * 2, bs * 2))
-            fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
+            img = get_tile(self.image.full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
+            # fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
             # img = fill_crop(image, (r-bs*2, c-bs*2), (bs*4, bs*4))
             fullres_img = img
             self.fullres_cmo_tile_lst.append(fullres_cmo)
@@ -204,7 +239,7 @@ class CMO_Peak(Detector):
         # gradients are used for filtering out clouds
         self.pk_gradients = []
         for i, (r,c) in enumerate(pks):
-            grad = self.image_gry[r+self._yv, c+self._xv].astype(np.int32)
+            grad = self.image.full_gray[r+self._yv, c+self._xv].astype(np.int32)
             grad = grad - grad[1, 1]
             grad[1, 1] = grad.max()
             self.pk_gradients.append(grad)
@@ -289,7 +324,12 @@ class CMO_Peak(Detector):
         # print(cat)
         # print(conf)
 
-    def detect(self, image, scale=1, filterClassID=None, frameNum=None):
+    # def mask_sky(self):
+    #     self.image.mask = find_sky_2(self.image.minpool, threshold=80,  kernal_size=7)
+    #     self.image.cmo = BH_op(self.image.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
+    #     self.image.cmo[self.image.mask > 0] = 0
+
+    def detect(self, scale=1, filterClassID=None, frameNum=None):
         """
         Detect objects in the input image.
 
@@ -308,16 +348,16 @@ class CMO_Peak(Detector):
 
         self.frameNum = frameNum
         if self.width is None or self.height is None:
-            (self.height, self.width) = image.shape[:2]
+            (self.height, self.width) = self.image.full_rgb.shape[:2]
 
-        (sr, sc) = self.align(image)
-        detections, bbwhs = self.forward(image)
+        (sr, sc) = self.align()
+        detections, bbwhs = self.find_peaks()
         centers = [ (bb[1]+bb[3]//2, bb[0]+bb[2]//2)  for bb in bbwhs]
         bboxes = []
         for detection in detections:
             bs = self.bboxsize//2
             row, col = detection
-            row, col = crop_idx(row, col, bs, image.shape)
+            row, col = crop_idx(row, col, bs, self.image.full_rgb.shape)
             bbox = (col-bs, row-bs, col+bs, row+bs)
             bboxes.append(bbox)
 

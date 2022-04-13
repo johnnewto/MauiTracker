@@ -7,7 +7,7 @@ import socket
 import csv, os
 
 from mot_sort_2 import Sort
-from motrackers import CMO_Peak
+from motrackers import CMO_Peak, Images
 # from motrackers import CentroidTracker
 # from motrackers.tracker_2 import CentroidTracker
 from motrackers.utils import draw_tracks
@@ -18,6 +18,7 @@ import utils.image_loader as il
 import utils.sony_cam as sony
 from utils.qgcs_connect import ConnectQGC
 
+import easygui
 
 from motrackers import parameters as pms
 import logging
@@ -53,31 +54,33 @@ class Main:
         self.testpoint = None
         self.all_tiles = []
         self.label_list = []
+        # self.images = self.model.image
+        self.images = Images()
+        self.model.image = self.images
         # idx, image= next(iter(loader))
-        self.set_max_pool(self.loader.firstimage[0].shape)
+        self.model.set_max_pool(12)
         self.heading_angle = 0.0
         self.qgc: ConnectQGC = qgc
         self.sock = socket.socket(socket.AF_INET,  # Internet
                              socket.SOCK_DGRAM)  # UDP
 
 
-    def set_max_pool(self, shape):
-        wid = shape[1]
-        self.model.maxpool = int(wid / 500)
-        print(f'Setting maxpool = {self.model.maxpool}')
-
     def experiment(self, image):
         try:
-            imgrgb_s = resize(image, width=6000 // 12)
-            gray_img_s = cv2.cvtColor(imgrgb_s, cv2.COLOR_BGR2GRAY)
+            # imgrgb_s = resize(image, width=6000 // self.model.maxpool)
+            # gray_img_s = cv2.cvtColor(imgrgb_s, cv2.COLOR_BGR2GRAY)
+
+            imgrgb_s = self.model.image.small_rgb.copy()
+            gray_img_s = self.model.image.small_gray.copy()
 
             edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=150, apertureSize=3)
+            cv2_img_show('Canny1`', edges)
             kernel = np.ones((3, 5), np.uint8)
             edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
             kernel = np.ones((1, 5), np.uint8)
             edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=5)
             # edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
-            show_img(edges, figsize=(12, 8))
+            # show_img(edges, figsize=(12, 8))
             # show_img(imgrgb_s, mode='BGR', figsize=(12,8))
             mask = np.ones_like(edges, dtype='uint8')
             mask[edges == 255] = 0
@@ -99,11 +102,12 @@ class Main:
 
             assert sky_idx > -1
             labels[labels != sky_idx] = 0
-            labels[labels == sky_idx] = 255
+            labels[labels == sky_idx] = 128
             labels = labels.astype('uint8')
-            kernel = np.ones((5, 5), 'uint8')
-            labels = cv2.morphologyEx(labels, cv2.MORPH_CLOSE, kernel, iterations=5)
+            # kernel = np.ones((5, 5), 'uint8')
+            # labels = cv2.morphologyEx(labels, cv2.MORPH_CLOSE, kernel, iterations=5)
             cv2_img_show('labels', labels)
+            self.model.image.horizon = labels
 
             lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 100, lines=None, minLineLength=100, maxLineGap=2)
             lines = list(np.squeeze(lines))
@@ -120,6 +124,40 @@ class Main:
             cv2_img_show('HoughLinesP', imgrgb_s)
         except Exception as e:
             logger.warning(e)
+
+
+    def get_horizon_tiles(self):
+        horizon = cv2.cvtColor(self.model.image.horizon, cv2.COLOR_GRAY2BGR)
+        small_rgb = self.model.image.small_rgb
+        # draw vertical lines
+        for c in range(20, horizon.shape[1], 20):
+            horizon[:,c,2] = 255
+            small_rgb[:,c,2] = 255
+        for r in range(20, horizon.shape[0], 20):
+            horizon[r,:,2] = 255
+            small_rgb[r,:,2] = 255
+        cv2_img_show('horizon', horizon)
+        cv2_img_show('small_rgb', small_rgb)
+
+
+        # pass
+        #
+        # # tiles = make_tile_list(self.model.fullres_img_tile_lst, tracks)
+        # tiles = []
+        # tiles = old_make_tile_list(image, tracks)
+        #
+        # if STORE_TILES:
+        #     # logger.warning( " all_tiles.append(tiles)  will hog memory")
+        #     for tl in tiles:
+        #         self.all_tiles.append(tl[0])    # warning this will hog memory
+        # try:
+        #     tile_img = tile_images(tiles, label=True, colors=self.model.bbox_colors)
+        # except Exception as e:
+        #     logger.warning(e)
+        # # tile_img = cv2.cvtColor(resize(tile_img, width=self.display_width), cv2.COLOR_GRAY2BGR)
+        # tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
+        # disp_image = np.vstack([tile_img, disp_image])
+        # return disp_image
 
 
     def run(self, wait_timeout=10, heading_angle=0, stop_frame=None):
@@ -141,13 +179,19 @@ class Main:
                 if grabbed or first_run:
                     first_run = False
                     print(f"frame {frameNum} : {filename}  {grabbed}" )
+                    self.images.set(image)
+                    self.images.mask_sky()
 
-                    # self.experiment(image)
+                    self.experiment(image)
+                    self.get_horizon_tiles()
 
                     # scale between source image and display image
                     self.display_scale = self.display_width / image.shape[1]
-                    bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(image,
-                                                scale=self.display_scale, filterClassID=[1, 2], frameNum=frameNum)
+
+                    # self.model.mask_sky()
+
+                    bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
+                                                                                        filterClassID=[1, 2], frameNum=frameNum)
                     if STORE_LABELS:
                         for i, bbox in enumerate(bboxes):
                             self.label_list.append([filename, i, bbox[0]+bbox[2]//2, bbox[1]+bbox[2]//2])
@@ -192,17 +236,17 @@ class Main:
                     # change direction
                     wait_timeout = 0
                     self.loader.restep = True
-                if k == ord('t'):
-                    r = int(self.model.image_s.shape[0] * 0.9)
-                    c =  self.model.image_s.shape[1] // 2
-                    bboxes.append([3000, 2000, 40, 40])
-                    confidences.append(1)
-                    class_ids.append(2)
-                    self.tracker.update(bboxes, confidences, class_ids, (0, 0))
-                    # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
-                    # trackers = mot_tracker.update(dets)
-                    self.testpoint = (r, c)
-                    self.loader.direction_fwd = not self.loader.direction_fwd
+                # if k == ord('t'):
+                #     r = int(self.images.small_rgb.shape[0] * 0.9)
+                #     c =  self.model.small_rgb.shape[1] // 2
+                #     bboxes.append([3000, 2000, 40, 40])
+                #     confidences.append(1)
+                #     class_ids.append(2)
+                #     self.tracker.update(bboxes, confidences, class_ids, (0, 0))
+                #     # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
+                #     # trackers = mot_tracker.update(dets)
+                #     self.testpoint = (r, c)
+                #     self.loader.direction_fwd = not self.loader.direction_fwd
 
                 if k == ord('f'):
                     import tkinter.filedialog
@@ -236,14 +280,10 @@ class Main:
     def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
 
         (sr, sc) = pos
-
-
-
-
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
-        contours, hierarchy = cv2.findContours(self.model.mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        disp_image = resize(image, width=self.model.image_s.shape[1])
+        contours, hierarchy = cv2.findContours(self.model.image.mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        disp_image = resize(image, width=self.model.image.small_gray.shape[1])
         # disp_image = cv2.cvtColor(self.model.image_s, cv2.COLOR_GRAY2BGR)
         for idx in range(len(contours)):
             cv2.drawContours(disp_image, contours, idx, (255,0,0), 1)
@@ -279,9 +319,9 @@ class Main:
         #     for r in ranges:
         #         print(f"plane detected at range {r}")
 
-        cv2.imshow('blockreduce_mask', resize(self.model.mask * 255, width=1000))
-        cmo = self.model.cmo_s
-        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(cmo), width=1000), cv2.COLORMAP_MAGMA))
+        cv2.imshow('blockreduce_mask', resize(self.model.image.mask * 255, width=1000))
+        # cmo = self.model.image.cmo
+        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(self.model.image.cmo ), width=1000), cv2.COLORMAP_MAGMA))
 
         # Tuple of 10 elements representing (frame, id, bb_left, bb_top, bb_width, bb_height, conf, x, y, z)
         # remove the ground class
@@ -373,7 +413,7 @@ if __name__ == '__main__':
                         expected_peak_max=60,
                         peak_min_distance=5,
                         num_peaks=5,
-                        maxpool=16,
+                        maxpool=12,
                         CMO_kernalsize=3,
                         track_boxsize=(80,160),
                         bboxsize=40,
@@ -388,17 +428,20 @@ if __name__ == '__main__':
     # crop = None
     home = str(Path.home())
     # path = 'Z:/Day2/seq1/'
-    path = home+"/data/large_plane/images/"
-    # path = home+"/data/ardmore_30Nov21/"
-    path = home+"/data/Karioitahi_15Jan2022/123MSDCF-35mm/"
-    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm(subset)/"
-    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm/"
-    path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/"
-    # path = home+"/data/Karioitahi_09Feb2022/133MSDCF-28mm-f4/"
-    # path = home+"/data/Karioitahi_09Feb2022/135MSDCF-60mm-f5.6/"
-    # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8/"
-    # path = home+"/data/Karioitahi_09Feb2022/126MSDCF-28mm-f4.5/"
+    path = home+"/data/large_plane/images"
+    # path = home+"/data/ardmore_30Nov21"
+    path = home+"/data/Karioitahi_15Jan2022/123MSDCF-35mm"
+    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm(subset)"
+    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm"
+    path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
+    # path = home+"/data/Karioitahi_09Feb2022/133MSDCF-28mm-f4"
+    # path = home+"/data/Karioitahi_09Feb2022/135MSDCF-60mm-f5.6"
+    # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
+    # path = home+"/data/Karioitahi_09Feb2022/126MSDCF-28mm-f4.5"
+    # path = home+"/data/Tairua_15Jan2022/109MSDCF"
 
+
+    # path = easygui.diropenbox( default=home+"/data/")
 
     if USE_CAMERA:
         try:
@@ -411,10 +454,10 @@ if __name__ == '__main__':
 
         except Exception as e:
             logger.error(e)
-            loader = il.ImageLoader(path + '*.JPG', mode='RGB', cvtgray=False, start_frame=0)
+            loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
 
     else:
-        loader = il.ImageLoader(path + '*.JPG', mode='RGB', cvtgray=False, start_frame=0)
+        loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
 
     NZ_START_POS = (-36.9957915731748, 174.91686500754628)
     qgc = ConnectQGC(NZ_START_POS)

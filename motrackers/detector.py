@@ -25,18 +25,6 @@ class Detector:
         if draw_bboxes:
             self.bbox_colors = {key: np.random.randint(0, 255, size=(3,)).tolist() for key in self.object_names.keys()}
 
-    def forward(self, image):
-        """
-        Forward pass for the detector with input image.
-
-        Args:
-            image (numpy.ndarray): Input image.
-
-        Returns:
-            numpy.ndarray: detections
-        """
-        raise NotImplemented
-
     def detect(self, image):
         """
         Detect objects in the input image.
