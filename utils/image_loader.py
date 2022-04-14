@@ -1,5 +1,3 @@
-import gc
-import os
 import threading
 from abc import abstractmethod
 from timeit import default_timer as timer
@@ -10,11 +8,10 @@ from PIL import Image
 import glob
 from imutils import resize
 from imutils.video import FPS
-from pympler import muppy
 
-from turbojpeg import TurboJPEG, TJPF_GRAY, TJPF_RGB, TJPF_BGR,  TJSAMP_GRAY, TJFLAG_PROGRESSIVE, TJFLAG_FASTUPSAMPLE, TJFLAG_FASTDCT
+from turbojpeg import TurboJPEG, TJPF_RGB, TJPF_BGR
 
-from motrackers import parameters as pms
+from utils import parameters as pms
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',

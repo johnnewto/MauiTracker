@@ -4,11 +4,11 @@ import cv2
 
 import gphoto2 as gp
 from imutils.video import FPS
-from turbojpeg import TurboJPEG, TJPF_GRAY, TJPF_RGB, TJPF_BGR,  TJSAMP_GRAY, TJFLAG_PROGRESSIVE, TJFLAG_FASTUPSAMPLE, TJFLAG_FASTDCT
+from turbojpeg import TurboJPEG, TJPF_RGB
 from utils.image_utils import *
 
 import threading, time
-from motrackers import parameters as pms
+from utils import parameters as pms
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',

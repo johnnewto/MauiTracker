@@ -7,7 +7,8 @@ import socket
 import csv, os
 
 from mot_sort_2 import Sort
-from motrackers import CMO_Peak, Images
+from utils.cmo_peak import *
+    # from utils.cmo_peak import Images
 # from motrackers import CentroidTracker
 # from motrackers.tracker_2 import CentroidTracker
 from motrackers.utils import draw_tracks
@@ -18,9 +19,7 @@ import utils.image_loader as il
 import utils.sony_cam as sony
 from utils.qgcs_connect import ConnectQGC
 
-import easygui
-
-from motrackers import parameters as pms
+from utils import parameters as pms
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',

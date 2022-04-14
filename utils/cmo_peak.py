@@ -6,17 +6,18 @@ import numpy as np
 
 import cv2  as cv2
 
-from motrackers.detector import Detector
+from utils.detector import Detector
 from motrackers.utils.misc import xyxy2xywh
 from motrackers.utils.misc import load_labelsjson
 from skimage.feature.peak import peak_local_max
-from utils.image_utils import resize, BH_op, get_tile, min_pool, find_sky_2, crop_idx
+from utils.image_utils import resize, BH_op, get_tile, min_pool, crop_idx, Images
+from utils.horizon import find_sky_2
 import  utils.pytorch_utils as ptu
 import torch
 
-from motrackers import parameters as pms
+from utils import parameters as pms
 import logging
-from dataclasses import dataclass
+
 
 # logger = logging.getLogger()
 # logger.setLevel(logging.INFO)
@@ -25,40 +26,6 @@ logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename
                     level=pms.LOGGING_LEVEL)
 logger = logging.getLogger(__name__)
 
-@dataclass
-class Images:
-    maxpool:int = 12
-    CMO_kernalsize = 3
-    full_rgb:np.array = None
-    small_rgb:np.array = None
-    full_gray:np.array = None
-    small_gray:np.array = None
-    minpool:np.array = None
-    minpool_f:np.array = None
-    last_minpool_f:np.array = None
-    cmo:np.array = None
-    mask:np.array = None
-    horizon:np.array = None
-
-    def set(self, image:np.array):
-        self.full_rgb = image
-        if self.full_rgb.ndim == 3:
-            # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
-            self.full_gray = self.full_rgb[:,:,1]
-
-        self.minpool = min_pool(self.full_gray, self.maxpool, self.maxpool)
-        small_gray = resize(self.full_gray, width=self.minpool.shape[1])
-        self.small_rgb = resize(self.full_rgb, width=self.minpool.shape[1])
-        self.small_gray = np.zeros_like(self.minpool, dtype='uint8')
-        n_rows = min(self.minpool.shape[0], small_gray.shape[0])
-        self.small_gray[:n_rows,:] = small_gray[:n_rows,:]
-        # self.small_gray = small_gray
-        self.minpool_f = np.float32(self.minpool )
-
-    def mask_sky(self):
-        self.mask = find_sky_2(self.minpool, threshold=80,  kernal_size=7)
-        self.cmo = BH_op(self.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
-        self.cmo[self.mask > 0] = 0
 
 class CMO_Peak(Detector):
     """

@@ -4,12 +4,11 @@ __all__ = ['show_img', 'cv2_img_show', 'plot_comparison', 'putText', 'plot_img_a
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from cv2 import cv2
 import cv2
 import moviepy.editor as mvp
 from moviepy.video.io.ffmpeg_writer import FFMPEG_VideoWriter
 
-from motrackers import parameters as pms
+from utils import parameters as pms
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',

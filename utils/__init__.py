@@ -9,5 +9,6 @@ Multi-object Trackers in Python:
 # from motrackers.tracker import Tracker as CentroidTracker
 # from motrackers.centroid_kf_tracker import CentroidKF_Tracker
 # from motrackers.sort_tracker import SORT
-from utils.generate_simulated_cmo_image import GenCMO
-
+# from utils.generate_simulated_cmo_image import GenCMO
+# from .cmo_peak import CMO_Peak, Images
+# from .detector import Detector
