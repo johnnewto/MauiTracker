@@ -1,4 +1,5 @@
-__all__ = ['Images', 'scale_image', 'resize', 'crop_image', 'ImageLoader', 'CMO_op', 'BH_op', 'TH_op' ,'make_tile_list', 'old_make_tile_list', 'crop_idx',
+# __all__ = ['setCurrentImages',  'getCurrentImages', 'g_images', 'Images',
+__all__ = ['scale_image', 'resize', 'crop_image', 'ImageLoader', 'CMO_op', 'BH_op', 'TH_op' ,'make_tile_list', 'old_make_tile_list', 'crop_idx',
            'tile_images', 'get_project_root', 'max_pool', 'min_pool','count_pool', 'norm_uint8',
            'get_tile']
 # , 'find_sky_1', 'find_sky_2' , 'near_mask', 'mask_horizon_1', 'mask_horizon_2',]
@@ -7,7 +8,7 @@ import cv2 as cv2
 import numpy as np
 from imutils import resize
 from utils import parameters as pms
-from utils.horizon import *
+# from utils.horizon import *
 import time, sys
 from dataclasses import dataclass
 
@@ -58,45 +59,55 @@ def norm_uint8(img):
     return cv2.normalize(img, img, 0, 255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
 
-@dataclass
-class Images:
-    maxpool:int = 12
-    CMO_kernalsize = 3
-    full_rgb:np.array = None
-    small_rgb:np.array = None
-    full_gray:np.array = None
-    small_gray:np.array = None
-    minpool:np.array = None
-    minpool_f:np.array = None
-    last_minpool_f:np.array = None
-    cmo:np.array = None
-    mask:np.array = None
-    horizon:np.array = None
-    filename = None
-
-    def set(self, image:np.array, _filename:str=''):
-        self.full_rgb = image
-        self.filename = _filename
-        if self.full_rgb.ndim == 3:
-            # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
-            self.full_gray = self.full_rgb[:,:,1]
-
-        self.minpool = min_pool(self.full_gray, self.maxpool, self.maxpool)
-        small_gray = resize(self.full_gray, width=self.minpool.shape[1])
-        self.small_rgb = resize(self.full_rgb, width=self.minpool.shape[1])
-        self.small_gray = np.zeros_like(self.minpool, dtype='uint8')
-        n_rows = min(self.minpool.shape[0], small_gray.shape[0])
-        self.small_gray[:n_rows,:] = small_gray[:n_rows,:]
-        # self.small_gray = small_gray
-        self.minpool_f = np.float32(self.minpool )
-
-    def mask_sky(self):
-        self.mask = find_sky_2(self.minpool, threshold=80,  kernal_size=7)
-        self.cmo = BH_op(self.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
-        self.cmo[self.mask > 0] = 0
-
-
-
+# @dataclass
+# class Images:
+#     maxpool:int = 12
+#     CMO_kernalsize = 3
+#     full_rgb:np.array = None
+#     small_rgb:np.array = None
+#     full_gray:np.array = None
+#     small_gray:np.array = None
+#     minpool:np.array = None
+#     minpool_f:np.array = None
+#     last_minpool_f:np.array = None
+#     cmo:np.array = None
+#     mask:np.array = None
+#     horizon:np.array = None
+#     filename = None
+#
+#     def set(self, image:np.array, _filename:str=''):
+#         self.full_rgb = image
+#         self.filename = _filename
+#         if self.full_rgb.ndim == 3:
+#             # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
+#             self.full_gray = self.full_rgb[:,:,1]
+#
+#         self.minpool = min_pool(self.full_gray, self.maxpool, self.maxpool)
+#         small_gray = resize(self.full_gray, width=self.minpool.shape[1])
+#         self.small_rgb = resize(self.full_rgb, width=self.minpool.shape[1])
+#         self.small_gray = np.zeros_like(self.minpool, dtype='uint8')
+#         n_rows = min(self.minpool.shape[0], small_gray.shape[0])
+#         self.small_gray[:n_rows,:] = small_gray[:n_rows,:]
+#         # self.small_gray = small_gray
+#         self.minpool_f = np.float32(self.minpool )
+#
+#     def mask_sky(self):
+#         self.mask = find_sky_2(self.minpool, threshold=80,  kernal_size=7)
+#         self.cmo = BH_op(self.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
+#         self.cmo[self.mask > 0] = 0
+#
+# # Sett global images buffer
+# g_images = Images()
+# g_images.small_rgb = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
+#
+# def setCurrentImages(images, image):
+#     global g_images
+#     g_images = images
+#     g_images.set(image)
+#
+# def getCurrentImages():
+#     global g_images
+#     return g_images
 
 
 def BH_op(img, kernelSize):
@@ -166,255 +177,6 @@ def count_pool(mat, K, L):
     MK = M // K
     NL = N // L
     return np.count_nonzero(mat[:MK * K, :NL * L].reshape(MK, K, NL, L), axis=(1, 3))
-#
-# def mask_horizon_1(image, shrink=None, calcOtsu_period=10, kernal_size=5, factor=0.7, threshold=None):
-#     try:
-#         mask_horizon_1.count += 1
-#     except AttributeError:
-#         mask_horizon_1.count = 0
-#
-#     if shrink is not None:
-#         image = resize(image, width=image.shape[1] // shrink)
-#
-#     mask_horizon_1.threshold = threshold
-#     if threshold is None and mask_horizon_1.count % calcOtsu_period == 0:
-#         (mask_horizon_1.threshold, mask) = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-#         mask_horizon_1.threshold = mask_horizon_1.threshold*factor
-#         print(f'Count {mask_horizon_1.count} Threshold {mask_horizon_1.threshold}')
-#
-#     (T, mask) = cv2.threshold(image, mask_horizon_1.threshold, 255, cv2.THRESH_BINARY_INV)
-#
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size, kernal_size))
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel, iterations=1)
-#
-#     return mask
-#
-# def mask_horizon_2(image, shrink=None, calcOtsu_period=10, kernal_size=5, factor=0.7, threshold=None):
-#     try:
-#         mask_horizon_2.count += 1
-#     except AttributeError:
-#         mask_horizon_2.count = 0
-#
-#     mask = cv2.Canny(image, threshold1=50, threshold2=150, apertureSize=3)
-#     kernel = np.ones((3, 3), np.uint8)
-#     mask = cv2.dilate(mask, kernel, iterations=3)  # dilation give more candidates for Hough lines
-#     # cv2_img_show('Canny1', edges)
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
-#     mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel, iterations=1)
-#     return mask
-
-# edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
-#
-# def get_neighbour(labels, pos, end):
-#     """ get a neighouring region: useful for removing small regions """
-#     labels_shape = np.array(labels.shape)
-#     # get  outside points at the diagional points
-#     pos = np.clip(pos, a_min=0, a_max=labels_shape-1)
-#     end = np.clip(end, a_min=0, a_max=labels_shape-1)
-#     pos1 = np.clip(pos-1, a_min=0, a_max=labels_shape-1)
-#     end1 = np.clip(end+1, a_min=0, a_max=labels_shape-1)
-#     # if clipped box point is outside ( = a neighbour) then return the neighbour label
-#     if np.any(pos != pos1):
-#         return labels[pos1[0],pos1[1]]
-#     if np.any(end != end1):
-#         return labels[end1[0],end1[1]]
-#
-#     return None
-#
-#
-# def find_sky_1(img, threshold=None, kernal_size=5):
-#     mask = mask_horizon_1(img, threshold=threshold, kernal_size=kernal_size)
-#     # mask = 255 - mask
-#     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-#     area_sort = np.argsort(stats[:, -1])
-#     # choose the region that is the largest brightest
-#     brightest = 0
-#     sky_idx = -1
-#
-#     # get bright large area
-#     for i in range(min(num_regions, 3)):
-#         idx = area_sort[-(i+1)]
-#         b = np.mean(img[labels==idx])
-#         area_ratio = stats[idx][4]/(mask.shape[0]*mask.shape[1])
-#         if b > brightest and area_ratio > 0.25:
-#             brightest = b
-#             sky_idx = idx
-#
-#     assert sky_idx > -1
-#
-#     # prune regions
-#     for idx in range(num_regions):
-#         area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-#         pos = stats[idx][1::-1]  # (col1, col0)
-#         end = pos + stats[idx][3:1:-1]
-#         left_side = pos[1]
-#         right_side = end[1]
-#         width_ratio = (right_side - left_side) / img.shape[1]
-#         top_side = pos[0]
-#         bot_side = end[0]
-#
-#         # remove small regions ( area < 5%) that are not adjacent to bottom or left or right sides
-#         if area_ratio < 0.05 and bot_side < img.shape[0] and left_side > 0 and right_side < img.shape[1]:
-#             neigh_idx = get_neighbour(labels, pos, end)
-#             # print(idx, neigh_idx)
-#             labels[labels == idx] = neigh_idx
-#
-#         # # merge in sky_index wide regions ( width > 5%) that are adjacent to top
-#         # if width_ratio > 0.05 and top_side == 0 :
-#         #     labels[labels == idx] = sky_idx
-#
-#
-#     # merge in sky_index large regions ( area > 10%) that are adjacent to top
-#     # for seascapes
-#     #
-#     # for idx in range(num_regions):
-#     #     area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-#     #     pos = stats[idx][1::-1]  # (col1, col0)
-#     #     end = pos + stats[idx][3:1:-1]
-#     #     left_side = pos[0]
-#     #     right_side = end[0]
-#     #     if area_ratio > 0.1 and (left_side == 0 or right_side == img.shape[1]):
-#     #         labels[labels == idx] = sky_idx
-#
-#
-#     new_mask = np.ones_like(mask)
-#     new_mask[labels == sky_idx] = 0
-#
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size*2+1, kernal_size*2+1))   # needs to be odd
-#     new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_CLOSE, kernel, iterations=5)
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size//2+1, kernal_size//2+1))
-#     new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel, iterations=1)
-#     # new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel)
-#     return new_mask
-#
-# def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
-#     """ optimised for marine images"""
-#     edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=100, apertureSize=3)
-#     kernel = np.ones((3, 5), 'uint8')
-#     edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
-#     # kernel = np.ones((3, 5), 'uint8')
-#     # edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=5)
-#     # kernel = np.ones((5, 5), 'uint8')
-#     # edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
-#     # cv2_img_show('find_sky_2-canny', edges)
-#     # show_img(imgrgb_s, mode='BGR', figsize=(12,8))
-#     mask = np.ones_like(edges, dtype='uint8')
-#     mask[edges == 255] = 0
-#     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-#     area_sort = np.argsort(stats[:, -1])
-#
-#     # choose the region that is the largest brightest
-#     brightest = 0
-#     sky_idx = -1
-#
-#     # get bright large area
-#     for i in range(min(num_regions, 3)):
-#         idx = area_sort[-(i + 1)]
-#         brightave1 = np.mean(gray_img_s[labels == idx])
-#         area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-#         if brightave1 > brightest and area_ratio > 0.25:
-#             brightest = brightave1
-#             sky_idx = idx
-#
-#     assert sky_idx > -1
-#     labels[labels != sky_idx] = 255
-#     labels[labels == sky_idx] = 0
-#     labels = labels.astype('uint8')
-#     kernel = np.ones((5, 5), 'uint8')
-#     edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
-#
-#     # cv2_img_show('find_sky_2-new_mask', labels)
-#
-#     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(labels)
-#
-#     for idx in range(num_regions):
-#         area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-#         pos = stats[idx][1::-1]  # (col1, col0)
-#         end = pos + stats[idx][3:1:-1]
-#         left_side = pos[1]
-#         right_side = end[1]
-#         top_side = pos[0]
-#         bot_side = end[0]
-#         brightave2 = np.mean(gray_img_s[labels == idx])
-#
-#         # remove small regions ( area < 5%) that are not adjacent to bottom or left or right sides
-#         # todo include this too # if area_ratio < 0.1 and bot_side < gray_img_s.shape[0] and left_side > 0 and right_side < gray_img_s.shape[1]:
-#         if area_ratio < 0.1:
-#             brightmin = np.min(gray_img_s[labels == idx])
-#             print(brightmin, brightest)
-#             if brightmin > 50:
-#                 labels[labels == idx] = 0
-#
-#     labels[labels > 0] = 255
-#     labels = labels.astype('uint8')
-#     # cv2_img_show('find_sky_2-labels pruned', labels)
-#     return labels
-#
-# def o_find_sky(img, threshold=None, kernal_size=5):
-#     mask = mask_horizon_1(img, threshold=threshold, kernal_size=kernal_size)
-#     # mask = 255 - mask
-#     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-#     area_sort = np.argsort(stats[:, -1])
-#     # choose the region that is the largest brightest
-#     brightest = 0
-#     b_idx = -1
-#
-#     # get bright large area
-#     for i in range(min(num_regions, 3)):
-#         idx = area_sort[-(i+1)]
-#         b = np.mean(img[labels==idx])
-#         area_ratio = stats[idx][4]/(mask.shape[0]*mask.shape[1])
-#         if b > brightest and area_ratio > 0.25:
-#             brightest = b
-#             b_idx = idx
-#
-#     assert b_idx > -1
-#
-#     # remove small regions
-#     for idx in range(num_regions):
-#         area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-#         if area_ratio < 0.25:
-#             pos = stats[idx][1::-1]  # (col1, col0)
-#             end = pos + stats[idx][3:1:-1]
-#             neigh_idx = get_neighbour(labels, pos, end)
-#             # print(idx, neigh_idx)
-#             labels[labels == idx] = neigh_idx
-#
-#     new_mask = np.ones_like(mask)
-#     new_mask[labels==b_idx] = 0
-#
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size//2, kernal_size//2))
-#     new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel, iterations=3)
-#     # new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel)
-#     return new_mask
-#
-#
-# def old_find_sky(img, threshold=None, kernal_size=10):
-#     mask = mask_horizon(img, threshold=threshold, kernal_size=kernal_size)
-#     mask = 255 - mask
-#     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-#     area_sort = np.argsort(stats[:, -1])
-#     # choose the region that is the largest brightest
-#     brightest = 0
-#     b_idx = -1
-#     for i in range(min(num_regions, 3)):
-#         idx = area_sort[-(i+1)]
-#         b = np.mean(img[labels==idx])
-#         area_ratio = stats[idx][4]/(mask.shape[0]*mask.shape[1])
-#         if b > brightest and area_ratio > 0.25:
-#             brightest = b
-#             b_idx = idx
-#
-#     assert b_idx > -1
-#     new_mask = np.ones_like(mask)
-#     new_mask[labels==b_idx] = 0
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size, kernal_size))
-#     new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_OPEN, kernel)
-#     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernal_size//2, kernal_size//2))
-#     new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel, iterations=3)
-#     # new_mask = cv2.morphologyEx(new_mask, cv2.MORPH_DILATE, kernel)
-#     return new_mask
 
 def get_tile(img:np.ndarray, pos, tile_shape):
     '''
@@ -452,18 +214,6 @@ def get_tile(img:np.ndarray, pos, tile_shape):
     except Exception as e:
         print(e)
     return tile
-#
-# def near_mask(pnt, mask, dist=10):
-#     try:
-#         xv, yv = near_mask.xv, near_mask.yv
-#     except AttributeError:
-#         x = np.arange(-dist, dist + 1, dist)
-#         near_mask.xv, near_mask.yv = np.meshgrid(x, x)
-#         xv, yv = near_mask.xv, near_mask.yv
-#
-#     r,c = pnt
-#     _mask = mask[r+yv, c+xv].astype(np.int32)
-#     return 1 in _mask
 
 def scale_image(img, scale=0.5):
     if scale != 1.0:
@@ -756,8 +506,7 @@ class ImageLoader:
         #         self.frame_num += 1
         #     self.restep = False
 
-def test_this():
-    assert 1==2
+
 
 if __name__ == '__main__':
     from utils.show_images import putText

@@ -4,12 +4,11 @@ from cv2 import cv2
 from pathlib import Path
 import numpy as np
 
-# from utils.image_utils import Images
+from utils.g_images import *
 from utils.qt_viewer import *
-# from motrackers import CentroidTracker
-# from motrackers.tracker_2 import CentroidTracker
 
 from utils.image_utils import *
+from utils.horizon import *
 from utils.show_images import *
 import utils.image_loader as il
 
@@ -197,13 +196,7 @@ if __name__ == '__main__':
     # path = easygui.diropenbox( default=home+"/data/")
 
     loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
-
-    # main = Main(loader, _model, _tracker, display_width=1500, record=RECORD, path=path)
-    # main = Main(loader,  )
-    #
-    # main.run(wait_timeout=0)
-
-    g_images = Images()
+    PAUSE_TIMEOUT = 99
 
     def test(viewer, qt_get_keypress):
         try:
@@ -221,35 +214,35 @@ if __name__ == '__main__':
             loader.close()
             return False
 
-        if test.wait_timeout != 99 or k == ord(' '):
+        if test.wait_timeout != PAUSE_TIMEOUT or k == ord(' '):
             (image, filename), frameNum, grabbed  = next(iter(loader))
             if grabbed:
                 # print(f"frame {frameNum} : {filename}  {grabbed}")
-                g_images.set(image, filename)
-                g_images.mask_sky()
-                cv2.imshow('small_rgb', cv2.cvtColor(g_images.small_rgb, cv2.COLOR_RGB2BGR))
-                cv2.imshow('mask_sky', g_images.mask)
-                viewer.setCurrentImages(g_images, image)
+                getGImages().set(image, filename)
+                getGImages().mask_sky()
+                gray_img_s = getGImages().small_gray.copy()
+                getGImages().horizon = set_horizon(gray_img_s)
+
+                cv2.imshow('small_rgb', cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR))
+                cv2.imshow('mask_sky', getGImages().mask)
+                cv2.imshow('horizon', getGImages().horizon)
+                setGImages(image)
                 viewer.viewCurrentImage()
 
 
         if k == ord('g') or k == ord('G'):
-            print(k)
+            test.wait_timeout = 1
         elif k == ord(' '):
-            pass
-            test.wait_timeout = 99
+            test.wait_timeout = PAUSE_TIMEOUT
 
         if k == ord('d'):
             # change direction
-            wait_timeout = 0
+            test.wait_timeout = PAUSE_TIMEOUT
             loader.direction_fwd = not loader.direction_fwd
         if k == ord('r'):
             # change direction
-            wait_timeout = 0
+            test.wait_timeout = PAUSE_TIMEOUT
             loader.restep = True
-        # if k == ord('u'):
-        #     viewer.update_image(image_rgb)
-
 
 
         return True

@@ -5,10 +5,13 @@ import sys
 from pyqtgraph.Qt import QtCore, QtWidgets
 # from PyQt5 import QtCore, QtGui
 import numpy as np
-from utils.image_utils import Images
+from utils.image_utils import *
+from utils.g_images import *
 from utils import parameters as pms
 from utils.horizon import find_sky_2
 import cv2
+import csv
+
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',
@@ -51,9 +54,13 @@ class Graph(pg.GraphItem):
     def mouseDragEvent(self, ev):
         modifiers = QtWidgets.QApplication.keyboardModifiers()
         if modifiers == QtCore.Qt.ShiftModifier:
-            shift = True
+            shiftkey = True
         else:
-            shift = False
+            shiftkey = False
+        if modifiers == QtCore.Qt.ControlModifier:
+            ctrlkey = True
+        else:
+            ctrlkey = False
 
         if ev.button() != QtCore.Qt.MouseButton.LeftButton:
             ev.ignore()
@@ -86,7 +93,7 @@ class Graph(pg.GraphItem):
                 ev.ignore()
                 return
 
-        if shift:
+        if shiftkey:
             # move all the points
             ind = self.dragPoint.data()[0]
             n_points = len(self.data['pos'])
@@ -98,9 +105,14 @@ class Graph(pg.GraphItem):
                         pnt[1] = self.startPoints[i][1] + dragAmount * (n_points-i)/n_points
                     else:
                         pnt[1] = self.startPoints[i][1] + dragAmount * i/n_points
-
-
             else:
+                # move neighbour points by 1/2
+                dragAmount = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
+                self.data['pos'][ind][1] += dragAmount
+                self.data['pos'][ind-1][1] += dragAmount*0.5
+                self.data['pos'][ind+1][1] += dragAmount*0.5
+
+        if ctrlkey:
                 # move all the same
                 for i, pnt in enumerate(self.data['pos']):
                     pnt[1] = ev.pos()[1] + self.dragOffsets[i][1]
@@ -116,18 +128,18 @@ class Graph(pg.GraphItem):
         print("clicked: %s" % pts)
 
 
-g_images = Images()
-g_images.small_rgb = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
-
-
-def setCurrentImages(images, image):
-    global g_images
-    g_images = images
-    g_images.set(image)
-
-def getCurrentImages():
-    global g_images
-    return g_images
+# g_images = Images()
+# g_images.small_rgb = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
+#
+#
+# def setCurrentImages(images, image):
+#     global g_images
+#     g_images = images
+#     g_images.set(image)
+#
+# def getCurrentImages():
+#     global g_images
+#     return g_images
 
 class Widget(QtWidgets.QWidget):
     def __init__(self):
@@ -141,20 +153,20 @@ class Widget(QtWidgets.QWidget):
         self.setWindowTitle('Viewer')
         self.widget = pg.GraphicsLayoutWidget()
         self.img = pg.ImageItem(border='w')
-        self.g = Graph()
+        self.graph = Graph()
         view = self.widget.addViewBox()
         view.addItem(self.img)
-        view.addItem(self.g)
+        view.addItem(self.graph)
 
         self.autoLabel = QtWidgets.QPushButton("Auto Horizon")
-        self.free1 = QtWidgets.QPushButton("Free")
-        self.free2 = QtWidgets.QPushButton("Free")
+        self.saveCSV = QtWidgets.QPushButton("Save CSV")
+        self.readCSV = QtWidgets.QPushButton("Read CSV")
         self.free3 = QtWidgets.QPushButton("Free")
 
         horizontalLayout = QtWidgets.QHBoxLayout()
         horizontalLayout.addWidget(self.autoLabel)
-        horizontalLayout.addWidget(self.free1)
-        horizontalLayout.addWidget(self.free2)
+        horizontalLayout.addWidget(self.saveCSV)
+        horizontalLayout.addWidget(self.readCSV)
         horizontalLayout.addWidget(self.free3)
 
         verticalLayout = QtWidgets.QVBoxLayout()
@@ -163,7 +175,7 @@ class Widget(QtWidgets.QWidget):
         verticalLayout.addLayout(horizontalLayout)
         self.setLayout(verticalLayout)
 
-        # self.setGeometry(10, 10, 1000, 600)
+        self.setGeometry(100, 100, 1500, 1000)
         self.show()
 
     def keyPressEvent(self, event):
@@ -182,13 +194,15 @@ class Widget(QtWidgets.QWidget):
 
     def qt_connections(self):
         self.autoLabel.clicked.connect(self.on_autoLabel_clicked)
-        self.free1.clicked.connect(self.on_free1button_clicked)
+        self.saveCSV.clicked.connect(self.on_saveCSV_clicked)
+        self.readCSV.clicked.connect(self.on_readCSV_clicked)
+        self.free3.clicked.connect(self.on_free3button_clicked)
 
-
-    def viewCurrentImage(self):
+    def viewCurrentImage(self, img=None):
         try:
-            # setCurrentImages(images)
-            out = cv2.transpose(getCurrentImages().small_rgb)
+            if img is None:
+                img = getGImages().small_rgb
+            out = cv2.transpose(img)
             out = cv2.flip(out, flipCode=1)
             self.img.setImage(out)
             self.display_image = out
@@ -200,42 +214,51 @@ class Widget(QtWidgets.QWidget):
 
     def set_horizon_points(self, pos = None):
         if pos is None:
-            n_points = 20
-            (c,r,z) = self.display_image.shape
-            x = np.linspace(1, c, n_points+1)
-            pos = np.column_stack((x, np.ones(n_points+1) * r//4))
+            n_points = pms.NUM_HORIZON_POINTS
+            (c,r) = self.display_image.shape[:2]
+            x = np.linspace(0, c-1, n_points)+0.5
+            pos = np.column_stack((x, np.ones(n_points) * r//4))
+            pass
         else:
             n_points = pos.shape[0]
-
-        adj = np.stack([np.arange(n_points), np.arange(1, n_points+1)]).transpose()
+            (cols, rows) = self.display_image.shape[:2]
+            pos[:,0] = pos[:,0] * cols
+            pos[:,1] = pos[:,1] * rows
+            assert max(pos[:,0]) < cols , 'columns must be less than image width '
+        adj = np.stack([np.arange(n_points-1), np.arange(1, n_points)]).transpose()
         pen = pg.mkPen('r', width=2)
-        self.g.setData(pos=pos, adj=adj, size=20, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=True)
+        self.graph.setData(pos=pos, adj=adj, size=10, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=False)
 
 
     def on_autoLabel_clicked(self):
-        images = getCurrentImages()
-        print ("on_autoLabel_clicked")
+        print("on_autoLabel_clicked Not Implemented")
+        # raise NotImplementedError
 
-    def on_free1button_clicked(self):
-        print ("on_free1button_clicked")
+    def on_saveCSV_clicked(self):
+        print("on_showCSV_clicked Not Implemented")
+        # raise NotImplementedError
+
+    def on_readCSV_clicked(self):
+        print ("on_readCSV_clicked Not Implemented")
+        # raise NotImplementedError
+
+    def on_free3button_clicked(self):
+        print ("on_free1button_clicked Not Implemented")
+        # raise NotImplementedError
 
 
 import cv2
 
-class Viewer:
+class Viewer(Widget):
     def __init__(self, process):
         self.timer = QtCore.QTimer()
         self.timer.setSingleShot(True)
         self.process = process
-        # self.images = Images()
-
         self.app = QtWidgets.QApplication(sys.argv)
         self.app.setApplicationName('Viewer')
-        self.imageWidget = Widget()
-
         self.timer.timeout.connect(self.run_timer)
         self.timer.start(1)
-        # self.app.exec_()
+        super().__init__()
 
     def open(self):
         self.app.exec_()
@@ -246,36 +269,104 @@ class Viewer:
 
     def run_timer(self):
 
-        go = self.process(self, self.imageWidget.qt_get_keypress)
+        go = self.process(self, self.qt_get_keypress)
+        # go = self.process(self, self.imageWidget.qt_get_keypress)
         if go:
             self.timer.start(1)
         else:
             self.close()
 
     def setCurrentImages(self, g_images, with_image):
-        setCurrentImages(g_images, with_image)
+        setGImages(g_images, with_image)
 
-    def viewCurrentImage(self):
+    def setCurrentImage(self, img=None):
 
-        self.imageWidget.viewCurrentImage()
-        self.imageWidget.set_horizon_points()
+        # self.imageWidget.viewCurrentImage(img)
+        # self.imageWidget.set_horizon_points()
+        self.viewCurrentImage(img)
+        self.set_horizon_points()
+
+    def on_autoLabel_clicked(self):
+        pos = mask2pos(getGImages().horizon)
+        print ("on_autoLabel_clicked")
+        print(pos)
+        self.set_horizon_points(pos)
 
 
+    def on_saveCSV_clicked(self):
+        print("on_saveCSV_clicked")
+        # print(self.graph.data['pos'])
+        pos = self.graph.data['pos']
+        (cols, rows) = self.display_image.shape[:2]
+        pos[:, 0] = pos[:, 0] / cols
+        pos[:, 1] = pos[:, 1] / rows
+        writecsv('filename1', pos)
+
+    def on_readCSV_clicked(self):
+        print("on_readCSV_clicked")
+        pos =  readcsv('filename1')
+        self.set_horizon_points(pos)
+
+def writecsv(filename, pos):
+    with open(filename, 'w') as f:
+        write = csv.writer(f)
+        write.writerows([[filename]])
+        write.writerows(pos)
 
 
+def readcsv(filename):
+    with open(filename, 'r') as file:        # self.imageWidget = Widget()
+        reader = csv.reader(file)
+        lines = []
+        for row in reader:
+            lines.append(row)
+            print(row)
+    filename = lines[0][0]
+    lines = [[float(c) for c in r] for r in lines[1:] ]
+    lines = np.array(lines)
+    return lines
+
+def mask2pos(mask):
+    n_points = pms.NUM_HORIZON_POINTS
+    (rows, cols) = mask.shape
+    c_pnts = np.linspace(0, cols - 1, n_points + 1) + 0.5
+    c_pnts[-1] = cols-1
+    pos = []
+    for c in c_pnts:
+        # find row in column c that is non zero
+        vcol = mask[::-1,int(c)]
+        hpnt = np.argmax(vcol==0)
+        pos.append([c/cols, hpnt/rows])
+
+    return np.asarray(pos)
+    # return
+
+
+from utils.horizon import *
 if __name__ == '__main__':
-    g_images = Images()
+    # g_images = Images()
     # image = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
 
     # images = Images()
     # image = cv2.cvtColor(cv2.imread())
-    image = cv2.cvtColor(cv2.imread('/home/jn/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/DSC01013.JPG'), cv2.COLOR_RGB2BGR)
-    setCurrentImages(g_images, image)
+    # filename = '/home/jn/data/Tairua_15Jan2022/109MSDCF/DSC03288.JPG'
+    filename = '/home/jn/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/DSC01013.JPG'
+    image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_RGB2BGR)
+
+    setGImages(image)
+    getGImages().mask_sky()
+    gray_img_s = getGImages().small_gray.copy()
+    getGImages().horizon = set_horizon(gray_img_s)
+    cv2.imshow('horizon', getGImages().horizon)
+
+    cv2.imshow('mask_sky', getGImages().mask)
+
+    pos = mask2pos(getGImages().horizon)
 
     def test(_viewer, qt_get_keypress):
         # _viewer.update_image(images)
 
-        cv2.imshow('small_rgb', cv2.cvtColor(getCurrentImages().small_rgb, cv2.COLOR_RGB2BGR))
+        # cv2.imshow('small_rgb', cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR))
         k = cv2.waitKey(100)
 
         if k == ord('q') or k == 27:
@@ -285,7 +376,8 @@ if __name__ == '__main__':
 
 
     viewer = Viewer(test)
-    viewer.viewCurrentImage()
+    viewer.setCurrentImage()
+    # viewer.viewCurrentImage(getGImages().mask)
     viewer.open()
     viewer.close()
 

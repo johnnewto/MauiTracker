@@ -10,7 +10,8 @@ from utils.detector import Detector
 from motrackers.utils.misc import xyxy2xywh
 from motrackers.utils.misc import load_labelsjson
 from skimage.feature.peak import peak_local_max
-from utils.image_utils import resize, BH_op, get_tile, min_pool, crop_idx, Images
+from utils.image_utils import resize, BH_op, get_tile, min_pool, crop_idx
+from utils.g_images import *
 from utils.horizon import find_sky_2
 import  utils.pytorch_utils as ptu
 import torch
@@ -50,16 +51,13 @@ class CMO_Peak(Detector):
             object_names = {1:'plane', 2:'cloud'}
 
         # self.scale_factor = 1/255.0
-        # self.image_size = (416, 416)
         self.expected_peak_max=expected_peak_max
         self.peak_min_distance = peak_min_distance
         self.num_peaks = num_peaks
         self.maxpool = maxpool
         self.CMO_kernalsize = CMO_kernalsize
         self.bboxsize = bboxsize
-        self.image = Images(maxpool=maxpool)
-        # self.l_image_sf = None
-        # self.cmo : np.ndarray = np.empty([2, 2])
+
         x = np.arange(-10, 10 + 1, 10)
         y = np.arange(-10, 10 + 1, 10)
         self._xv, self._yv = np.meshgrid(x, y)
@@ -78,17 +76,17 @@ class CMO_Peak(Detector):
 
     def set_max_pool(self, maxpool=12):
         self.maxpool = maxpool
-        self.image.maxpool = self.maxpool
+        getGImages().maxpool = self.maxpool
         print(f'Setting maxpool = {self.maxpool}')
 
     def align(self):
         """ Align this image to the last in order to keep tracking centers accurate"""
 
         try:
-            ((sc, sr), _error) = cv2.phaseCorrelate(self.image.last_minpool_f, self.image.minpool_f)
-            self.image.last_minpool_f = self.image.minpool_f
+            ((sc, sr), _error) = cv2.phaseCorrelate(getGImages().last_minpool_f, getGImages().minpool_f)
+            getGImages().last_minpool_f = getGImages().minpool_f
         except:
-            self.image.last_minpool_f = self.image.minpool_f
+            getGImages().last_minpool_f = getGImages().minpool_f
             sc, sr = 0, 0
 
         return (round(sr*self.maxpool), round(sc*self.maxpool))
@@ -117,18 +115,10 @@ class CMO_Peak(Detector):
 
     def find_peaks(self):
 
-        # self.image.cmo = BH_op(self.image.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
-        # make it a bit more visible
-
-        # self.mask = mask_horizon(self.images.image_s, threshold=70)
-        # self.mask = np.zeros_like(self.image.small_gray, dtype='uint8')
-        # self.mask = find_sky_1(self.images.image_s, threshold=80,  kernal_size=7)
-        # self.image.mask = find_sky_2(self.image.minpool, threshold=80,  kernal_size=7)
-        # self.image.cmo[self.image.mask > 0] = 0
 
 
         threshold_abs = self.expected_peak_max*self.confidence_threshold
-        _pks = peak_local_max(self.image.cmo,
+        _pks = peak_local_max(getGImages().cmo,
                               min_distance=self.peak_min_distance,
                               threshold_abs=threshold_abs,
                               num_peaks=self.num_peaks)
@@ -148,8 +138,8 @@ class CMO_Peak(Detector):
 
             bs0 = round(self.bboxsize//2)
 
-            lowres_img = get_tile(self.image.small_gray, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
-            lowres_cmo = get_tile(self.image.cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
+            lowres_img = get_tile(getGImages().small_gray, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
+            lowres_cmo = get_tile(getGImages().cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
 
             self.lowres_img_tile_lst.append(lowres_img)
             self.lowres_cmo_tile_lst.append(lowres_cmo)
@@ -167,13 +157,13 @@ class CMO_Peak(Detector):
             # find more accurate peak position based on full size image
             r, c = r * self.maxpool, c * self.maxpool
 
-            img = get_tile(self.image.full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
+            img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
             fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
             # l_cmo = self.cmo[r-bs:r+bs, c-bs:c+bs]
             (_r, _c) = np.unravel_index(fullres_cmo.argmax(), fullres_cmo.shape)
             r, c = r-bs+_r, c-bs+_c
             pks.append((r, c))
-            img = get_tile(self.image.full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
+            img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
             # fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
             # img = fill_crop(image, (r-bs*2, c-bs*2), (bs*4, bs*4))
             fullres_img = img
@@ -206,7 +196,7 @@ class CMO_Peak(Detector):
         # gradients are used for filtering out clouds
         self.pk_gradients = []
         for i, (r,c) in enumerate(pks):
-            grad = self.image.full_gray[r+self._yv, c+self._xv].astype(np.int32)
+            grad = getGImages().full_gray[r+self._yv, c+self._xv].astype(np.int32)
             grad = grad - grad[1, 1]
             grad[1, 1] = grad.max()
             self.pk_gradients.append(grad)
@@ -291,10 +281,7 @@ class CMO_Peak(Detector):
         # print(cat)
         # print(conf)
 
-    # def mask_sky(self):
-    #     self.image.mask = find_sky_2(self.image.minpool, threshold=80,  kernal_size=7)
-    #     self.image.cmo = BH_op(self.image.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
-    #     self.image.cmo[self.image.mask > 0] = 0
+
 
     def detect(self, scale=1, filterClassID=None, frameNum=None):
         """
@@ -315,7 +302,7 @@ class CMO_Peak(Detector):
 
         self.frameNum = frameNum
         if self.width is None or self.height is None:
-            (self.height, self.width) = self.image.full_rgb.shape[:2]
+            (self.height, self.width) = getGImages().full_rgb.shape[:2]
 
         (sr, sc) = self.align()
         detections, bbwhs = self.find_peaks()
@@ -324,7 +311,7 @@ class CMO_Peak(Detector):
         for detection in detections:
             bs = self.bboxsize//2
             row, col = detection
-            row, col = crop_idx(row, col, bs, self.image.full_rgb.shape)
+            row, col = crop_idx(row, col, bs, getGImages().full_rgb.shape)
             bbox = (col-bs, row-bs, col+bs, row+bs)
             bboxes.append(bbox)
 

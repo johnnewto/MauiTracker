@@ -8,11 +8,10 @@ import csv, os
 
 from mot_sort_2 import Sort
 from utils.cmo_peak import *
-    # from utils.cmo_peak import Images
-# from motrackers import CentroidTracker
-# from motrackers.tracker_2 import CentroidTracker
 from motrackers.utils import draw_tracks
 
+from utils.g_images import *
+from utils.horizon import *
 from utils.image_utils import *
 from utils.show_images import *
 import utils.image_loader as il
@@ -53,10 +52,7 @@ class Main:
         self.testpoint = None
         self.all_tiles = []
         self.label_list = []
-        # self.images = self.model.image
-        self.images = Images()
-        self.model.image = self.images
-        # idx, image= next(iter(loader))
+
         self.model.set_max_pool(12)
         self.heading_angle = 0.0
         self.qgc: ConnectQGC = qgc
@@ -65,98 +61,70 @@ class Main:
 
 
     def experiment(self, image):
-        try:
-            # imgrgb_s = resize(image, width=6000 // self.model.maxpool)
-            # gray_img_s = cv2.cvtColor(imgrgb_s, cv2.COLOR_BGR2GRAY)
+        gray_img_s = getGImages().small_gray.copy()
+        getGImages().horizon = set_horizon(gray_img_s)
+        cv2_img_show('horizon', getGImages().horizon)
 
-            imgrgb_s = self.model.image.small_rgb.copy()
-            gray_img_s = self.model.image.small_gray.copy()
-
-            edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=150, apertureSize=3)
-            cv2_img_show('Canny1`', edges)
-            kernel = np.ones((3, 5), np.uint8)
-            edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
-            kernel = np.ones((1, 5), np.uint8)
-            edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=5)
-            # edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
-            # show_img(edges, figsize=(12, 8))
-            # show_img(imgrgb_s, mode='BGR', figsize=(12,8))
-            mask = np.ones_like(edges, dtype='uint8')
-            mask[edges == 255] = 0
-            num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-            area_sort = np.argsort(stats[:, -1])
-
-            # choose the region that is the largest brightest
-            brightest = 0
-            sky_idx = -1
-
-            # get bright large area
-            for i in range(min(num_regions, 3)):
-                idx = area_sort[-(i + 1)]
-                b = np.mean(gray_img_s[labels == idx])
-                area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
-                if b > brightest and area_ratio > 0.25:
-                    brightest = b
-                    sky_idx = idx
-
-            assert sky_idx > -1
-            labels[labels != sky_idx] = 0
-            labels[labels == sky_idx] = 128
-            labels = labels.astype('uint8')
-            # kernel = np.ones((5, 5), 'uint8')
-            # labels = cv2.morphologyEx(labels, cv2.MORPH_CLOSE, kernel, iterations=5)
-            cv2_img_show('labels', labels)
-            self.model.image.horizon = labels
-
-            lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 100, lines=None, minLineLength=100, maxLineGap=2)
-            lines = list(np.squeeze(lines))
-            # lines.sort(key=lambda x: -(x[2] - x[0]))
-
-            for line in lines:
-                [x1, y1, x2, y2] = line
-                angle = abs(math.degrees(math.atan2(y2 - y1, x2 - x1)))
-                if angle < 25:
-                    cv2.line(imgrgb_s, (x1, y1), (x2, y2), (0, 255, 0), 1)
-                # cv2.line(imgrgb_s, (x1, y1), (x2, y2), (0, 255, 0), 1)
-
-            cv2_img_show('Canny2', edges)
-            cv2_img_show('HoughLinesP', imgrgb_s)
-        except Exception as e:
-            logger.warning(e)
-
-
-    def get_horizon_tiles(self):
-        horizon = cv2.cvtColor(self.model.image.horizon, cv2.COLOR_GRAY2BGR)
-        small_rgb = self.model.image.small_rgb
-        # draw vertical lines
-        for c in range(20, horizon.shape[1], 20):
-            horizon[:,c,2] = 255
-            small_rgb[:,c,2] = 255
-        for r in range(20, horizon.shape[0], 20):
-            horizon[r,:,2] = 255
-            small_rgb[r,:,2] = 255
-        cv2_img_show('horizon', horizon)
-        cv2_img_show('small_rgb', small_rgb)
-
-
-        # pass
-        #
-        # # tiles = make_tile_list(self.model.fullres_img_tile_lst, tracks)
-        # tiles = []
-        # tiles = old_make_tile_list(image, tracks)
-        #
-        # if STORE_TILES:
-        #     # logger.warning( " all_tiles.append(tiles)  will hog memory")
-        #     for tl in tiles:
-        #         self.all_tiles.append(tl[0])    # warning this will hog memory
         # try:
-        #     tile_img = tile_images(tiles, label=True, colors=self.model.bbox_colors)
+        #     # imgrgb_s = resize(image, width=6000 // self.model.maxpool)
+        #     # gray_img_s = cv2.cvtColor(imgrgb_s, cv2.COLOR_BGR2GRAY)
+        #
+        #     imgrgb_s = getGImages().small_rgb.copy()
+        #
+        #
+        #     edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=150, apertureSize=3)
+        #     cv2_img_show('Canny1`', edges)
+        #     kernel = np.ones((3, 5), np.uint8)
+        #     edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
+        #     kernel = np.ones((1, 5), np.uint8)
+        #     edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=5)
+        #     # edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
+        #     # show_img(edges, figsize=(12, 8))
+        #     # show_img(imgrgb_s, mode='BGR', figsize=(12,8))
+        #     mask = np.ones_like(edges, dtype='uint8')
+        #     mask[edges == 255] = 0
+        #     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+        #     area_sort = np.argsort(stats[:, -1])
+        #
+        #     # choose the region that is the largest brightest
+        #     brightest = 0
+        #     sky_idx = -1
+        #
+        #     # get bright large area
+        #     for i in range(min(num_regions, 3)):
+        #         idx = area_sort[-(i + 1)]
+        #         b = np.mean(gray_img_s[labels == idx])
+        #         area_ratio = stats[idx][4] / (mask.shape[0] * mask.shape[1])
+        #         if b > brightest and area_ratio > 0.25:
+        #             brightest = b
+        #             sky_idx = idx
+        #
+        #     assert sky_idx > -1
+        #     labels[labels != sky_idx] = 0
+        #     labels[labels == sky_idx] = 128
+        #     labels = labels.astype('uint8')
+        #     # kernel = np.ones((5, 5), 'uint8')
+        #     # labels = cv2.morphologyEx(labels, cv2.MORPH_CLOSE, kernel, iterations=5)
+        #     cv2_img_show('labels', labels)
+        #     getGImages().horizon = labels
+        #
+        #     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 100, lines=None, minLineLength=100, maxLineGap=2)
+        #     lines = list(np.squeeze(lines))
+        #     # lines.sort(key=lambda x: -(x[2] - x[0]))
+        #
+        #     for line in lines:
+        #         [x1, y1, x2, y2] = line
+        #         angle = abs(math.degrees(math.atan2(y2 - y1, x2 - x1)))
+        #         if angle < 25:
+        #             cv2.line(imgrgb_s, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        #         # cv2.line(imgrgb_s, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        #
+        #     cv2_img_show('Canny2', edges)
+        #     cv2_img_show('HoughLinesP', imgrgb_s)
         # except Exception as e:
         #     logger.warning(e)
-        # # tile_img = cv2.cvtColor(resize(tile_img, width=self.display_width), cv2.COLOR_GRAY2BGR)
-        # tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
-        # disp_image = np.vstack([tile_img, disp_image])
-        # return disp_image
+
+
 
 
     def run(self, wait_timeout=10, heading_angle=0, stop_frame=None):
@@ -178,11 +146,10 @@ class Main:
                 if grabbed or first_run:
                     first_run = False
                     print(f"frame {frameNum} : {filename}  {grabbed}" )
-                    self.images.set(image)
-                    self.images.mask_sky()
+                    setGImages(image)
+                    getGImages().mask_sky()
 
                     self.experiment(image)
-                    self.get_horizon_tiles()
 
                     # scale between source image and display image
                     self.display_scale = self.display_width / image.shape[1]
@@ -281,9 +248,9 @@ class Main:
         (sr, sc) = pos
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
-        contours, hierarchy = cv2.findContours(self.model.image.mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        disp_image = resize(image, width=self.model.image.small_gray.shape[1])
-        # disp_image = cv2.cvtColor(self.model.image_s, cv2.COLOR_GRAY2BGR)
+        contours, hierarchy = cv2.findContours(getGImages().mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        disp_image = resize(image, width=getGImages().small_gray.shape[1])
+
         for idx in range(len(contours)):
             cv2.drawContours(disp_image, contours, idx, (255,0,0), 1)
         disp_image = resize(disp_image, width=self.display_width)
@@ -318,9 +285,9 @@ class Main:
         #     for r in ranges:
         #         print(f"plane detected at range {r}")
 
-        cv2.imshow('blockreduce_mask', resize(self.model.image.mask * 255, width=1000))
-        # cmo = self.model.image.cmo
-        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(self.model.image.cmo ), width=1000), cv2.COLORMAP_MAGMA))
+        cv2.imshow('blockreduce_mask', resize(getGImages().mask * 255, width=1000))
+
+        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(getGImages().cmo ), width=1000), cv2.COLORMAP_MAGMA))
 
         # Tuple of 10 elements representing (frame, id, bb_left, bb_top, bb_width, bb_height, conf, x, y, z)
         # remove the ground class
