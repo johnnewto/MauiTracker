@@ -43,11 +43,11 @@ class Images:
     cmo:np.array = None
     mask:np.array = None
     horizon:np.array = None
-    filename = None
+    file_path = None
 
-    def set(self, image:np.array, _filename:str=''):
+    def set(self, image:np.array, _file_path:str=''):
         self.full_rgb = image
-        self.filename = _filename
+        self.file_path = _file_path
         if self.full_rgb.ndim == 3:
             # use this as much faster than cv2.cvtColor(imgrgb, cv2.COLOR_BGR2GRAY) (~24msec for 6K image)
             self.full_gray = self.full_rgb[:,:,1]
@@ -72,9 +72,9 @@ class Images:
 g_images = Images()
 g_images.small_rgb = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
 
-def setGImages(image):
+def setGImages(image, file_path=None):
     global g_images
-    g_images.set(image)
+    g_images.set(image, file_path)
 
 def getGImages() -> Images:
     global g_images

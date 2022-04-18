@@ -2,6 +2,9 @@ __all__ = ['Viewer']
 
 import pyqtgraph as pg
 import sys
+
+from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtWidgets import QPushButton
 from pyqtgraph.Qt import QtCore, QtWidgets
 # from PyQt5 import QtCore, QtGui
 import numpy as np
@@ -11,6 +14,7 @@ from utils import parameters as pms
 from utils.horizon import find_sky_2
 import cv2
 import csv
+from pathlib import Path
 
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
@@ -26,6 +30,7 @@ class Graph(pg.GraphItem):
         self.textItems = []
         pg.GraphItem.__init__(self)
         self.scatter.sigClicked.connect(self.clicked)
+        self.dataChanged = False
 
     def setData(self, **kwds):
         self.text = kwds.pop('text', [])
@@ -47,9 +52,12 @@ class Graph(pg.GraphItem):
             item.setParentItem(self)
 
     def updateGraph(self):
+        # it's essential to call this to convert the self.data into the graph points
         pg.GraphItem.setData(self, **self.data)
+
         for i, item in enumerate(self.textItems):
             item.setPos(*self.data['pos'][i])
+        self.dataChanged = True
 
     def mouseDragEvent(self, ev):
         modifiers = QtWidgets.QApplication.keyboardModifiers()
@@ -121,6 +129,8 @@ class Graph(pg.GraphItem):
             ind = self.dragPoint.data()[0]
             self.data['pos'][ind][1] = ev.pos()[1] + self.dragOffsets[ind][1]
 
+        self.data['pen'] = pg.mkPen('r', width=2)
+        self.data['symbolPen'] = pg.mkPen('r', width=2)
         self.updateGraph()
         ev.accept()
 
@@ -128,18 +138,16 @@ class Graph(pg.GraphItem):
         print("clicked: %s" % pts)
 
 
-# g_images = Images()
-# g_images.small_rgb = np.random.normal(size=(320, 480, 3), loc=1024, scale=64).astype(np.uint16)
-#
-#
-# def setCurrentImages(images, image):
-#     global g_images
-#     g_images = images
-#     g_images.set(image)
-#
-# def getCurrentImages():
-#     global g_images
-#     return g_images
+class MyPushButton(QPushButton):
+    def __init__(self, *args):
+        QPushButton.__init__(self, *args)
+
+    def event(self, event):
+        if (event.type() == QEvent.KeyPress) and (event.key() == Qt.Key_Space):
+            event.ignore()
+            return True
+
+        return QPushButton.event(self, event)
 
 class Widget(QtWidgets.QWidget):
     def __init__(self):
@@ -158,28 +166,39 @@ class Widget(QtWidgets.QWidget):
         view.addItem(self.img)
         view.addItem(self.graph)
 
-        self.autoLabel = QtWidgets.QPushButton("Auto Horizon")
-        self.saveCSV = QtWidgets.QPushButton("Save CSV")
-        self.readCSV = QtWidgets.QPushButton("Read CSV")
-        self.free3 = QtWidgets.QPushButton("Free")
+        self.btn_autoLabel = MyPushButton("Auto Horizon")
+        self.btn_saveCSV = MyPushButton("Save CSV")
+        self.btn_readCSV = MyPushButton("Read CSV")
+        self.btn_free3 = MyPushButton("Free")
+        self.cbx_saveTrainMask = QtWidgets.QCheckBox("Save Training Mask")
 
-        horizontalLayout = QtWidgets.QHBoxLayout()
-        horizontalLayout.addWidget(self.autoLabel)
-        horizontalLayout.addWidget(self.saveCSV)
-        horizontalLayout.addWidget(self.readCSV)
-        horizontalLayout.addWidget(self.free3)
+        horizontalLayout1 = QtWidgets.QHBoxLayout()
+        horizontalLayout1.addWidget(self.btn_autoLabel)
+        horizontalLayout1.addWidget(self.btn_saveCSV)
+        horizontalLayout1.addWidget(self.btn_readCSV)
+        horizontalLayout1.addWidget(self.btn_free3)
+        horizontalLayout1.addWidget(self.cbx_saveTrainMask)
+
 
         verticalLayout = QtWidgets.QVBoxLayout()
         verticalLayout.addWidget(self.widget)
 
-        verticalLayout.addLayout(horizontalLayout)
+        verticalLayout.addLayout(horizontalLayout1)
         self.setLayout(verticalLayout)
 
         self.setGeometry(100, 100, 1500, 1000)
         self.show()
 
+    def setDataChanged(self, _bool):
+        self.setGraphColour(_bool)
+        # do this after changing the colour
+        self.graph.dataChanged = _bool
+
+    def getDataChanged(self):
+        return self.graph.dataChanged
+
     def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Q:
+        if event.key() == QtCore.Qt.Key_Q or event.key() == QtCore.Qt.Key_Escape :
             self.deleteLater()
 
         self._key_press = event.key()
@@ -187,16 +206,14 @@ class Widget(QtWidgets.QWidget):
 
     def qt_get_keypress(self):
         ret = self._key_press
-        if self._key_press is not None:
-            print(self._key_press)
         self._key_press = None
         return ret
 
     def qt_connections(self):
-        self.autoLabel.clicked.connect(self.on_autoLabel_clicked)
-        self.saveCSV.clicked.connect(self.on_saveCSV_clicked)
-        self.readCSV.clicked.connect(self.on_readCSV_clicked)
-        self.free3.clicked.connect(self.on_free3button_clicked)
+        self.btn_autoLabel.clicked.connect(self.btn_autoLabel_clicked)
+        self.btn_saveCSV.clicked.connect(self.btn_saveCSV_clicked)
+        self.btn_readCSV.clicked.connect(self.btn_readCSV_clicked)
+        self.btn_free3.clicked.connect(self.btn_free3button_clicked)
 
     def viewCurrentImage(self, img=None):
         try:
@@ -216,7 +233,7 @@ class Widget(QtWidgets.QWidget):
         if pos is None:
             n_points = pms.NUM_HORIZON_POINTS
             (c,r) = self.display_image.shape[:2]
-            x = np.linspace(0, c-1, n_points)+0.5
+            x = np.linspace(0, c-1, n_points)
             pos = np.column_stack((x, np.ones(n_points) * r//4))
             pass
         else:
@@ -225,24 +242,39 @@ class Widget(QtWidgets.QWidget):
             pos[:,0] = pos[:,0] * cols
             pos[:,1] = pos[:,1] * rows
             assert max(pos[:,0]) < cols , 'columns must be less than image width '
-        adj = np.stack([np.arange(n_points-1), np.arange(1, n_points)]).transpose()
-        pen = pg.mkPen('r', width=2)
-        self.graph.setData(pos=pos, adj=adj, size=10, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=False)
+        adj = np.stack([np.arange(n_points), np.arange(1, n_points+1)]).transpose()
+        adj[-1,1] = 0
+        # pen = pg.mkPen('g', width=2)
+        # self.graph.setData(pos=pos, adj=adj, size=10, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=False)
+        self.graph.setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
 
+    def setGraphColour(self, _bool):
+        if _bool:
+            # self.graph.pen = pg.mkPen('r', width=2)
+            # self.graph.symbolPen = pg.mkPen('r', width=2)
+            self.graph.data['pen'] = pg.mkPen('r', width=2)
+            self.graph.data['symbolPen'] = pg.mkPen('r', width=2)
+        else:
+            # self.graph.pen = pg.mkPen('g', width=2)
+            # self.graph.symbolPen = pg.mkPen('g', width=2)
+            self.graph.data['pen'] = pg.mkPen('g', width=2)
+            self.graph.data['symbolPen'] = pg.mkPen('g', width=2)
 
-    def on_autoLabel_clicked(self):
-        print("on_autoLabel_clicked Not Implemented")
+        self.graph.updateGraph()
+
+    def btn_autoLabel_clicked(self):
+        print("btn_autoLabel_clicked Not Implemented")
         # raise NotImplementedError
 
-    def on_saveCSV_clicked(self):
-        print("on_showCSV_clicked Not Implemented")
+    def btn_saveCSV_clicked(self):
+        print("btn_showCSV_clicked Not Implemented")
         # raise NotImplementedError
 
-    def on_readCSV_clicked(self):
-        print ("on_readCSV_clicked Not Implemented")
+    def btn_readCSV_clicked(self):
+        print ("btn_readCSV_clicked Not Implemented")
         # raise NotImplementedError
 
-    def on_free3button_clicked(self):
+    def btn_free3button_clicked(self):
         print ("on_free1button_clicked Not Implemented")
         # raise NotImplementedError
 
@@ -278,6 +310,7 @@ class Viewer(Widget):
 
     def setCurrentImages(self, g_images, with_image):
         setGImages(g_images, with_image)
+        self.setDataChanged(False)
 
     def setCurrentImage(self, img=None):
 
@@ -286,50 +319,106 @@ class Viewer(Widget):
         self.viewCurrentImage(img)
         self.set_horizon_points()
 
-    def on_autoLabel_clicked(self):
+    def btn_autoLabel_clicked(self):
+        self.setDataChanged(True)
         pos = mask2pos(getGImages().horizon)
-        print ("on_autoLabel_clicked")
-        print(pos)
         self.set_horizon_points(pos)
 
 
-    def on_saveCSV_clicked(self):
-        print("on_saveCSV_clicked")
+    def btn_saveCSV_clicked(self):
+        print("btn_saveCSV_clicked")
+        self.saveCSV()
+        if self.cbx_saveTrainMask.checkState():
+            self.saveTrainMask()
+
+    def saveCSV(self):
         # print(self.graph.data['pos'])
         pos = self.graph.data['pos']
         (cols, rows) = self.display_image.shape[:2]
         pos[:, 0] = pos[:, 0] / cols
         pos[:, 1] = pos[:, 1] / rows
-        writecsv('filename1', pos)
-
-    def on_readCSV_clicked(self):
-        print("on_readCSV_clicked")
-        pos =  readcsv('filename1')
+        file_path = getGImages().file_path
+        # file_name = Path(file_path).name
+        writecsv(file_path, pos)
+        self.setDataChanged(False)
         self.set_horizon_points(pos)
 
-def writecsv(filename, pos):
-    with open(filename, 'w') as f:
-        write = csv.writer(f)
-        write.writerows([[filename]])
-        write.writerows(pos)
+
+    def btn_readCSV_clicked(self):
+        print("btn_readCSV_clicked")
+        self.readCSV()
+
+    def readCSV(self):
+        file_path = getGImages().file_path
+        _pos =  readcsv(file_path)
+        if _pos is None:
+            self.setDataChanged(True)
+            ret = False
+        else:
+            self.set_horizon_points(_pos)
+            self.setDataChanged(False)
+            ret = True
+
+        return ret
+
+    def saveTrainMask(self):
+        path = Path(getGImages().file_path)
+        maskDir = path.parents[0]/'masks'
+        filename = path.name
+        Path.mkdir(maskDir, exist_ok=True)
+        imgrgb = cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR)
+        (rows, cols) = imgrgb.shape[:2]
+        pts = self.graph.data['pos'].copy()
+        pts[:, 0] = pts[:, 0] / cols
+        pts[:, 1] = pts[:, 1] / rows
+        pts[:,1] = 1-pts[:,1]   # invert the y axis
+
+        (rows, cols) = (320, 480)
+        output = cv2.resize(imgrgb, (cols, rows))
+        cv2.imwrite(str(maskDir / filename), output)
+        scale = np.asarray(output.shape[-2:-4:-1])
+        pts = (pts*scale).astype('int32')
+
+        mask = np.zeros((rows, cols)).astype('uint8')
+        mask = cv2.fillPoly(mask, pts=[pts], color=120)
+        cv2.imwrite(str((maskDir/filename).with_suffix('.png')), mask)
+        cv2.imshow('mask', mask)
 
 
-def readcsv(filename):
-    with open(filename, 'r') as file:        # self.imageWidget = Widget()
-        reader = csv.reader(file)
-        lines = []
-        for row in reader:
-            lines.append(row)
-            print(row)
-    filename = lines[0][0]
-    lines = [[float(c) for c in r] for r in lines[1:] ]
-    lines = np.array(lines)
-    return lines
+def writecsv(file_path, _pos):
+    file_path = Path(file_path)
+    filename = file_path.name
+    try:
+        with open(file_path.with_suffix('.txt'), 'w') as f:
+            write = csv.writer(f)
+            write.writerows([[filename]])
+            write.writerows(_pos)
+        logger.warning(f"Writing CSV {file_path.with_suffix('.txt')}")
+    except Exception as e:
+        logger.info(e)
+
+def readcsv(file_path):
+    file_path = Path(file_path)
+    try:
+        with open(file_path.with_suffix('.txt'), 'r') as file:        # self.imageWidget = Widget()
+            reader = csv.reader(file)
+            lines = []
+            for row in reader:
+                lines.append(row)
+                # print(row)
+        filename = lines[0][0]
+        lines = [[float(c) for c in r] for r in lines[1:] ]
+        lines = np.array(lines)
+
+        return lines
+    except Exception as e:
+        logger.warning(e)
+        return None
 
 def mask2pos(mask):
     n_points = pms.NUM_HORIZON_POINTS
     (rows, cols) = mask.shape
-    c_pnts = np.linspace(0, cols - 1, n_points + 1) + 0.5
+    c_pnts = np.linspace(0, cols - 1, n_points + 1)
     c_pnts[-1] = cols-1
     pos = []
     for c in c_pnts:
@@ -338,6 +427,8 @@ def mask2pos(mask):
         hpnt = np.argmax(vcol==0)
         pos.append([c/cols, hpnt/rows])
 
+    pos.append([c / cols, 0.0])
+    pos.append([0.0, 0.0])
     return np.asarray(pos)
     # return
 
@@ -350,10 +441,10 @@ if __name__ == '__main__':
     # images = Images()
     # image = cv2.cvtColor(cv2.imread())
     # filename = '/home/jn/data/Tairua_15Jan2022/109MSDCF/DSC03288.JPG'
-    filename = '/home/jn/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/DSC01013.JPG'
+    filename = '/home/jn/data/testImages/DSC01013.JPG'
     image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_RGB2BGR)
 
-    setGImages(image)
+    setGImages(image, filename)
     getGImages().mask_sky()
     gray_img_s = getGImages().small_gray.copy()
     getGImages().horizon = set_horizon(gray_img_s)
@@ -377,6 +468,7 @@ if __name__ == '__main__':
 
     viewer = Viewer(test)
     viewer.setCurrentImage()
+    viewer.readCSV()
     # viewer.viewCurrentImage(getGImages().mask)
     viewer.open()
     viewer.close()

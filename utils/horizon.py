@@ -202,7 +202,7 @@ def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
         # todo include this too # if area_ratio < 0.1 and bot_side < gray_img_s.shape[0] and left_side > 0 and right_side < gray_img_s.shape[1]:
         if area_ratio < 0.1:
             brightmin = np.min(gray_img_s[labels == idx])
-            print(brightmin, brightest)
+            # print(brightmin, brightest)
             if brightmin > 50:
                 labels[labels == idx] = 0
 
