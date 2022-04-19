@@ -363,9 +363,11 @@ class Viewer(Widget):
 
     def saveTrainMask(self):
         path = Path(getGImages().file_path)
-        maskDir = path.parents[0]/'masks'
-        filename = path.name
+        jpgDir = path.parents[1]/pms.jpgDir
+        Path.mkdir(jpgDir, exist_ok=True)
+        maskDir = path.parents[1]/pms.maskDir
         Path.mkdir(maskDir, exist_ok=True)
+        filename = path.name
         imgrgb = cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR)
         (rows, cols) = imgrgb.shape[:2]
         pts = self.graph.data['pos'].copy()
@@ -375,14 +377,17 @@ class Viewer(Widget):
 
         (rows, cols) = (320, 480)
         output = cv2.resize(imgrgb, (cols, rows))
-        cv2.imwrite(str(maskDir / filename), output)
+        fn = str((jpgDir / filename).with_suffix('.jpg'))
+        cv2.imwrite(fn, output)
         scale = np.asarray(output.shape[-2:-4:-1])
         pts = (pts*scale).astype('int32')
 
         mask = np.zeros((rows, cols)).astype('uint8')
         mask = cv2.fillPoly(mask, pts=[pts], color=120)
-        cv2.imwrite(str((maskDir/filename).with_suffix('.png')), mask)
+        fn = str((maskDir/filename).with_suffix('.png'))
+        cv2.imwrite(fn, mask)
         cv2.imshow('mask', mask)
+        logger.info(f"Writing jpg and mask {fn} + jpg")
 
 
 def writecsv(file_path, _pos):
@@ -393,7 +398,7 @@ def writecsv(file_path, _pos):
             write = csv.writer(f)
             write.writerows([[filename]])
             write.writerows(_pos)
-        logger.warning(f"Writing CSV {file_path.with_suffix('.txt')}")
+        logger.info(f"Writing CSV {file_path.with_suffix('.txt')}")
     except Exception as e:
         logger.info(e)
 
@@ -441,7 +446,7 @@ if __name__ == '__main__':
     # images = Images()
     # image = cv2.cvtColor(cv2.imread())
     # filename = '/home/jn/data/Tairua_15Jan2022/109MSDCF/DSC03288.JPG'
-    filename = '/home/jn/data/testImages/DSC01013.JPG'
+    filename = '/home/jn/data/testImages/original/DSC01013.JPG'
     image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_RGB2BGR)
 
     setGImages(image, filename)

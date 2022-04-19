@@ -48,7 +48,7 @@ if __name__ == '__main__':
     # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm"
     path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
     # path = home+"/data/Tairua_15Jan2022/109MSDCF"
-    path = home+"/data/testImages"
+    path = home+"/data/testImages/original"
 
     # path = easygui.diropenbox( default=home+"/data/")
 
@@ -128,7 +128,33 @@ if __name__ == '__main__':
 
         return True
 
-    viewer = Viewer(ops).open()
+    def btn_autoLabel_clicked(self):
+        self.setDataChanged(True)
+        pos = mask2pos(getGImages().horizon)
+        self.set_horizon_points(pos)
+
+
+    def mask2pos(mask):
+        n_points = pms.NUM_HORIZON_POINTS
+        (rows, cols) = mask.shape
+        c_pnts = np.linspace(0, cols - 1, n_points + 1)
+        c_pnts[-1] = cols - 1
+        pos = []
+        for c in c_pnts:
+            # find row in column c that is non zero
+            vcol = mask[::-1, int(c)]
+            hpnt = np.argmax(vcol == 0)
+            pos.append([c / cols, hpnt / rows])
+
+        pos.append([c / cols, 0.0])
+        pos.append([0.0, 0.0])
+        return np.asarray(pos)
+
+
+    viewer = Viewer(ops)
+    viewer.btn_autoLabel_clicked = btn_autoLabel_clicked
+    viewer.open()
+
     cv2.destroyAllWindows()
     loader.close()
     print(f'FPS = {loader.get_FPS()}')
