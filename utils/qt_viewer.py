@@ -470,7 +470,7 @@ if __name__ == '__main__':
 
         return True
 
-
+    print('here')
     viewer = Viewer(test)
     viewer.setCurrentImage()
     viewer.readCSV()
