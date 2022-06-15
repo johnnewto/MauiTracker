@@ -5,7 +5,7 @@ import sys
 
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtWidgets import QPushButton
-from pyqtgraph.Qt import QtCore, QtWidgets
+from pyqtgraph.Qt import QtCore, QtWidgets, QtGui
 # from PyQt5 import QtCore, QtGui
 import numpy as np
 from utils.image_utils import *
@@ -23,7 +23,8 @@ logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename
 logger = logging.getLogger(__name__)
 
 class Graph(pg.GraphItem):
-    def __init__(self):
+    def __init__(self, name=None):
+        self.name = name
         self.dragPoint = None
         self.dragOffset = None
         self.downPos = None
@@ -31,6 +32,7 @@ class Graph(pg.GraphItem):
         pg.GraphItem.__init__(self)
         self.scatter.sigClicked.connect(self.clicked)
         self.dataChanged = False
+        self.menu = None
 
     def setData(self, **kwds):
         self.text = kwds.pop('text', [])
@@ -58,6 +60,58 @@ class Graph(pg.GraphItem):
         for i, item in enumerate(self.textItems):
             item.setPos(*self.data['pos'][i])
         self.dataChanged = True
+
+    # On right-click, raise the context menu
+    def mouseClickEvent(self, ev):
+        if ev.button() == QtCore.Qt.RightButton:
+            if self.raiseContextMenu(ev):
+                ev.accept()
+
+    def raiseContextMenu(self, ev):
+        # menu = self.getContextMenus()
+
+        # Let the scene add on to the end of our context menu
+        # (this is optional)
+        # menu = self.scene().addParentContextMenus(self, menu, ev)
+        menu = self.getMenu()
+        pos = ev.screenPos()
+        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
+        return True
+
+    def getMenu(self):
+        """
+        Create the menu
+        """
+        if self.menu is None:
+            self.menu = QtGui.QMenu()
+            self.viewAll = QtGui.QAction("Vue d\'ensemble", self.menu)
+            # self.viewAll.triggered.connect(self.autoRange)
+            self.menu.addAction(self.viewAll)
+            self.leftMenu = QtGui.QMenu("Mode clic gauche")
+            group = QtGui.QActionGroup(self)
+            pan = QtGui.QAction(u'Déplacer', self.leftMenu)
+            zoom = QtGui.QAction(u'Zoomer', self.leftMenu)
+            self.leftMenu.addAction(pan)
+            self.leftMenu.addAction(zoom)
+            # pan.triggered.connect(self.setPanMode)
+            # zoom.triggered.connect(self.setRectMode)
+            pan.setCheckable(True)
+            zoom.setCheckable(True)
+            pan.setActionGroup(group)
+            zoom.setActionGroup(group)
+            self.menu.addMenu(self.leftMenu)
+            self.menu.addSeparator()
+            self.showT0 = QtGui.QAction(u'Afficher les marqueurs d\'amplitude', self.menu)
+            # self.showT0.triggered.connect(self.emitShowT0)
+            self.showT0.setCheckable(True)
+            self.showT0.setEnabled(False)
+            self.menu.addAction(self.showT0)
+            self.showS0 = QtGui.QAction(u'Afficher les marqueurs de Zone d\'intégration', self.menu)
+            self.showS0.setCheckable(True)
+            # self.showS0.triggered.connect(self.emitShowS0)
+            self.showS0.setEnabled(False)
+            self.menu.addAction(self.showS0)
+        return self.menu
 
     def mouseDragEvent(self, ev):
         modifiers = QtWidgets.QApplication.keyboardModifiers()
@@ -105,28 +159,43 @@ class Graph(pg.GraphItem):
             # move all the points
             ind = self.dragPoint.data()[0]
             n_points = len(self.data['pos'])
+            dragAmount = [None] * 2
             if ind == 0 or ind == n_points-1:
                 # rotate about the end point
-                dragAmount = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
+                dragAmount[0] = ev.pos()[0] + self.dragOffsets[ind][0] - self.startPoints[ind][0]
+                dragAmount[1] = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
                 for i, (pnt, s_pnt) in enumerate(zip(self.data['pos'], self.startPoints)):
                     if ind == 0:
-                        pnt[1] = self.startPoints[i][1] + dragAmount * (n_points-i)/n_points
+                        if pms.DRAG_MODE == 'XY':
+                            pnt[0] = self.startPoints[i][0] + dragAmount[0] * (n_points-i)/n_points
+                        pnt[1] = self.startPoints[i][1] + dragAmount[1] * (n_points-i)/n_points
                     else:
+                        if pms.DRAG_MODE == 'XY':
+                            pnt[0] = self.startPoints[i][0] + dragAmount * i/n_points
                         pnt[1] = self.startPoints[i][1] + dragAmount * i/n_points
             else:
                 # move neighbour points by 1/2
-                dragAmount = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
-                self.data['pos'][ind][1] += dragAmount
-                self.data['pos'][ind-1][1] += dragAmount*0.5
-                self.data['pos'][ind+1][1] += dragAmount*0.5
+                dragAmount[0] = ev.pos()[0] + self.dragOffsets[ind][0] - self.startPoints[ind][0]
+                dragAmount[1] = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
+                if pms.DRAG_MODE == 'XY':
+                    self.data['pos'][ind][0] += dragAmount[0]
+                    self.data['pos'][ind-1][0] += dragAmount[0]*0.5
+                    self.data['pos'][ind+1][0] += dragAmount[0]*0.5
+                self.data['pos'][ind][1] += dragAmount[1]
+                self.data['pos'][ind-1][1] += dragAmount[1]*0.5
+                self.data['pos'][ind+1][1] += dragAmount[1]*0.5
 
         if ctrlkey:
                 # move all the same
                 for i, pnt in enumerate(self.data['pos']):
+                    if pms.DRAG_MODE == 'XY':
+                        pnt[0] = ev.pos()[0] + self.dragOffsets[i][0]
                     pnt[1] = ev.pos()[1] + self.dragOffsets[i][1]
         else:
             # move one point only
             ind = self.dragPoint.data()[0]
+            if pms.DRAG_MODE == 'XY':
+                self.data['pos'][ind][0] = ev.pos()[0] + self.dragOffsets[ind][0]
             self.data['pos'][ind][1] = ev.pos()[1] + self.dragOffsets[ind][1]
 
         self.data['pen'] = pg.mkPen('r', width=2)
@@ -161,10 +230,12 @@ class Widget(QtWidgets.QWidget):
         self.setWindowTitle('Viewer')
         self.widget = pg.GraphicsLayoutWidget()
         self.img = pg.ImageItem(border='w')
-        self.graph = Graph()
-        view = self.widget.addViewBox()
-        view.addItem(self.img)
-        view.addItem(self.graph)
+        self.graphs = []
+        # self.graphs = [Graph(name='Horizon')]
+        # self.graphnames = ['obj1']
+        self.view = self.widget.addViewBox()
+        self.view.addItem(self.img)
+        # view.addItem(self.graphs[0])
 
         self.btn_autoLabel = MyPushButton("Auto Horizon")
         self.btn_saveCSV = MyPushButton("Save CSV")
@@ -189,13 +260,19 @@ class Widget(QtWidgets.QWidget):
         self.setGeometry(100, 100, 1500, 1000)
         self.show()
 
-    def setDataChanged(self, _bool):
-        self.setGraphColour(_bool)
+    def setDataChanged(self, _bool, name=None):
+        self.setGraphColour(_bool, name)
         # do this after changing the colour
-        self.graph.dataChanged = _bool
+        for graph in self.graphs:
+            if name is None or graph.name == name:
+                graph.dataChanged = _bool
 
-    def getDataChanged(self):
-        return self.graph.dataChanged
+    def getDataChanged(self, name=None):
+        for graph in self.graphs:
+            if graph.name == name:
+                return self.graphs[0].dataChanged
+        else:
+            return False
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Q or event.key() == QtCore.Qt.Key_Escape :
@@ -229,7 +306,7 @@ class Widget(QtWidgets.QWidget):
             logger.error(e)
             pass
 
-    def set_horizon_points(self, pos = None):
+    def set_horizon_points(self, pos=None, name=None):
         if pos is None:
             n_points = pms.NUM_HORIZON_POINTS
             (c,r) = self.display_image.shape[:2]
@@ -246,21 +323,31 @@ class Widget(QtWidgets.QWidget):
         adj[-1,1] = 0
         # pen = pg.mkPen('g', width=2)
         # self.graph.setData(pos=pos, adj=adj, size=10, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=False)
-        self.graph.setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
+        done = False
+        for graph in self.graphs:
+            if graph.name == name:
+                graph.setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
+                done = True
+        if not done:
+            self.graphs.append(Graph(name=name))
+            self.view.addItem(self.graphs[-1])
+            self.graphs[-1].setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
 
-    def setGraphColour(self, _bool):
-        if _bool:
-            # self.graph.pen = pg.mkPen('r', width=2)
-            # self.graph.symbolPen = pg.mkPen('r', width=2)
-            self.graph.data['pen'] = pg.mkPen('r', width=2)
-            self.graph.data['symbolPen'] = pg.mkPen('r', width=2)
-        else:
-            # self.graph.pen = pg.mkPen('g', width=2)
-            # self.graph.symbolPen = pg.mkPen('g', width=2)
-            self.graph.data['pen'] = pg.mkPen('g', width=2)
-            self.graph.data['symbolPen'] = pg.mkPen('g', width=2)
+    def setGraphColour(self, _bool, name=None):
+        for graph in self.graphs:
+            if name is None or graph.name == name:
+                if _bool:
+                    # self.graph.pen = pg.mkPen('r', width=2)
+                    # self.graph.symbolPen = pg.mkPen('r', width=2)
+                    graph.data['pen'] = pg.mkPen('r', width=2)
+                    graph.data['symbolPen'] = pg.mkPen('r', width=2)
+                else:
+                    # self.graph.pen = pg.mkPen('g', width=2)
+                    # self.graph.symbolPen = pg.mkPen('g', width=2)
+                    graph.data['pen'] = pg.mkPen('g', width=2)
+                    graph.data['symbolPen'] = pg.mkPen('g', width=2)
 
-        self.graph.updateGraph()
+                graph.updateGraph()
 
     def btn_autoLabel_clicked(self):
         print("btn_autoLabel_clicked Not Implemented")
@@ -322,7 +409,7 @@ class Viewer(Widget):
     def btn_autoLabel_clicked(self):
         self.setDataChanged(True)
         pos = mask2pos(getGImages().horizon)
-        self.set_horizon_points(pos)
+        self.set_horizon_points(pos, name='Horizon')
 
 
     def btn_saveCSV_clicked(self):
@@ -333,15 +420,17 @@ class Viewer(Widget):
 
     def saveCSV(self):
         # print(self.graph.data['pos'])
-        pos = self.graph.data['pos']
+        # pos = self.graphs[0].data['pos']
+        name = self.graphs[0].name
         (cols, rows) = self.display_image.shape[:2]
-        pos[:, 0] = pos[:, 0] / cols
-        pos[:, 1] = pos[:, 1] / rows
+        # pos[:, 0] = pos[:, 0] / cols
+        # pos[:, 1] = pos[:, 1] / rows
         file_path = getGImages().file_path
         # file_name = Path(file_path).name
-        writecsv(file_path, pos)
+        # old_writecsv(file_path, pos, name)
+        writecsv(file_path, self.graphs, cols, rows)
         self.setDataChanged(False)
-        self.set_horizon_points(pos)
+        # self.set_horizon_points(pos)
 
 
     def btn_readCSV_clicked(self):
@@ -351,13 +440,20 @@ class Viewer(Widget):
     def readCSV(self):
         file_path = getGImages().file_path
         _pos =  readcsv(file_path)
+
         if _pos is None:
             self.setDataChanged(True)
             ret = False
         else:
-            self.set_horizon_points(_pos)
-            self.setDataChanged(False)
-            ret = True
+            # name = _pos[0][0]
+            # _pos = _pos[0][1]
+            # if name == 'Horizon':
+            for p in _pos:
+                name = p[0]
+                _p = p[1]
+                self.set_horizon_points(_p, name=name)
+                self.setDataChanged(False, name=name)
+                ret = True
 
         return ret
 
@@ -370,7 +466,7 @@ class Viewer(Widget):
         filename = path.name
         imgrgb = cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR)
         (rows, cols) = imgrgb.shape[:2]
-        pts = self.graph.data['pos'].copy()
+        pts = self.graph[0].data['pos'].copy()
         pts[:, 0] = pts[:, 0] / cols
         pts[:, 1] = pts[:, 1] / rows
         pts[:,1] = 1-pts[:,1]   # invert the y axis
@@ -390,35 +486,77 @@ class Viewer(Widget):
         logger.info(f"Writing jpg and mask {fn} + jpg")
 
 
-def writecsv(file_path, _pos):
+def old_writecsv(file_path, _pos):
     file_path = Path(file_path)
     filename = file_path.name
     try:
         with open(file_path.with_suffix('.txt'), 'w') as f:
             write = csv.writer(f)
-            write.writerows([[filename]])
+            write.writerows([['Filename', filename]])
+            write.writerows([['Name', 'Horizon']])
             write.writerows(_pos)
         logger.info(f"Writing CSV {file_path.with_suffix('.txt')}")
     except Exception as e:
         logger.info(e)
 
-def readcsv(file_path):
+
+def writecsv(file_path, graphs, cols, rows):
     file_path = Path(file_path)
+    filename = file_path.name
+
     try:
+        with open(file_path.with_suffix('.txt'), 'w') as f:
+            write = csv.writer(f)
+            write.writerows([['Filename', filename]])
+            for graph in graphs:
+                pos = graph.data['pos'].copy()
+                name = graph.name
+                pos[:, 0] = pos[:, 0] / cols
+                pos[:, 1] = pos[:, 1] / rows
+                write.writerows([['Name', name]])
+                write.writerows(pos)
+        logger.info(f"Writing CSV {file_path.with_suffix('.txt')}")
+    except Exception as e:
+        logger.info(e)
+
+
+def readcsv(file_path):
+        file_path = Path(file_path)
+    # try:
         with open(file_path.with_suffix('.txt'), 'r') as file:        # self.imageWidget = Widget()
             reader = csv.reader(file)
+            objects = []
             lines = []
+            currentName = None
             for row in reader:
+                if len(row) == 0 :
+                    continue
+                if row[0] == 'Filename' or row[0] == 'File':
+                    filename = row[1]
+                    continue
+                elif row[0] == 'Name':
+                    if currentName is not None:
+                        nplines = [[float(c) for c in r] for r in lines[1:]]
+                        nplines = np.array(nplines)
+                        objects.append([currentName, nplines])
+                    currentName = row[1]
+                    lines = []
+
                 lines.append(row)
                 # print(row)
-        filename = lines[0][0]
-        lines = [[float(c) for c in r] for r in lines[1:] ]
-        lines = np.array(lines)
+            nplines = [[float(c) for c in r] for r in lines[1:]]
+            nplines = np.array(nplines)
+            objects.append([currentName, nplines])
+        # if lines[0][o] == 'Filename':
+        #     filename = lines[0][1]
 
-        return lines
-    except Exception as e:
-        logger.warning(e)
-        return None
+        # lines = [[float(c) for c in r] for r in lines[1:] ]
+        # lines = np.array(lines)
+
+            return objects
+    # except Exception as e:
+    #     logger.warning(e)
+    #     return None
 
 def mask2pos(mask):
     n_points = pms.NUM_HORIZON_POINTS

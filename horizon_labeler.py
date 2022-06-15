@@ -49,6 +49,7 @@ if __name__ == '__main__':
     path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
     # path = home+"/data/Tairua_15Jan2022/109MSDCF"
     path = home+"/data/testImages/original"
+    path = home+"/data/test2"
 
     # path = easygui.diropenbox( default=home+"/data/")
 
@@ -128,10 +129,10 @@ if __name__ == '__main__':
 
         return True
 
-    def btn_autoLabel_clicked(self):
-        self.setDataChanged(True)
-        pos = mask2pos(getGImages().horizon)
-        self.set_horizon_points(pos)
+    # def btn_autoLabel_clicked(self):
+    #     self.setDataChanged(True)
+    #     pos = mask2pos(getGImages().horizon)
+    #     self.set_horizon_points(pos)
 
 
     def mask2pos(mask):
@@ -152,7 +153,7 @@ if __name__ == '__main__':
 
 
     viewer = Viewer(ops)
-    viewer.btn_autoLabel_clicked = btn_autoLabel_clicked
+    # viewer.btn_autoLabel_clicked = btn_autoLabel_clicked
     viewer.open()
 
     cv2.destroyAllWindows()
