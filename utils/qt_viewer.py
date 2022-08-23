@@ -1,9 +1,13 @@
 __all__ = ['Viewer']
 
+import json
+from math import cos, sin, radians
+from typing import List
+
 import pyqtgraph as pg
 import sys
 
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import QEvent, Qt, QCoreApplication
 from PyQt5.QtWidgets import QPushButton
 from pyqtgraph.Qt import QtCore, QtWidgets, QtGui
 # from PyQt5 import QtCore, QtGui
@@ -15,6 +19,7 @@ from utils.horizon import find_sky_2
 import cv2
 import csv
 from pathlib import Path
+from utils.horizon_ROI import HorizonROI
 
 import logging
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
@@ -22,190 +27,7 @@ logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename
                     level=pms.LOGGING_LEVEL)
 logger = logging.getLogger(__name__)
 
-class Graph(pg.GraphItem):
-    def __init__(self, name=None):
-        self.name = name
-        self.dragPoint = None
-        self.dragOffset = None
-        self.downPos = None
-        self.textItems = []
-        pg.GraphItem.__init__(self)
-        self.scatter.sigClicked.connect(self.clicked)
-        self.dataChanged = False
-        self.menu = None
-
-    def setData(self, **kwds):
-        self.text = kwds.pop('text', [])
-        self.data = kwds
-        if 'pos' in self.data:
-            npts = self.data['pos'].shape[0]
-            self.data['data'] = np.empty(npts, dtype=[('index', int)])
-            self.data['data']['index'] = np.arange(npts)
-        self.setTexts(self.text)
-        self.updateGraph()
-
-    def setTexts(self, text):
-        for i in self.textItems:
-            i.scene().removeItem(i)
-        self.textItems = []
-        for t in text:
-            item = pg.TextItem(t)
-            self.textItems.append(item)
-            item.setParentItem(self)
-
-    def updateGraph(self):
-        # it's essential to call this to convert the self.data into the graph points
-        pg.GraphItem.setData(self, **self.data)
-
-        for i, item in enumerate(self.textItems):
-            item.setPos(*self.data['pos'][i])
-        self.dataChanged = True
-
-    # On right-click, raise the context menu
-    def mouseClickEvent(self, ev):
-        if ev.button() == QtCore.Qt.RightButton:
-            if self.raiseContextMenu(ev):
-                ev.accept()
-
-    def raiseContextMenu(self, ev):
-        # menu = self.getContextMenus()
-
-        # Let the scene add on to the end of our context menu
-        # (this is optional)
-        # menu = self.scene().addParentContextMenus(self, menu, ev)
-        menu = self.getMenu()
-        pos = ev.screenPos()
-        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
-        return True
-
-    def getMenu(self):
-        """
-        Create the menu
-        """
-        if self.menu is None:
-            self.menu = QtGui.QMenu()
-            self.viewAll = QtGui.QAction("Vue d\'ensemble", self.menu)
-            # self.viewAll.triggered.connect(self.autoRange)
-            self.menu.addAction(self.viewAll)
-            self.leftMenu = QtGui.QMenu("Mode clic gauche")
-            group = QtGui.QActionGroup(self)
-            pan = QtGui.QAction(u'Déplacer', self.leftMenu)
-            zoom = QtGui.QAction(u'Zoomer', self.leftMenu)
-            self.leftMenu.addAction(pan)
-            self.leftMenu.addAction(zoom)
-            # pan.triggered.connect(self.setPanMode)
-            # zoom.triggered.connect(self.setRectMode)
-            pan.setCheckable(True)
-            zoom.setCheckable(True)
-            pan.setActionGroup(group)
-            zoom.setActionGroup(group)
-            self.menu.addMenu(self.leftMenu)
-            self.menu.addSeparator()
-            self.showT0 = QtGui.QAction(u'Afficher les marqueurs d\'amplitude', self.menu)
-            # self.showT0.triggered.connect(self.emitShowT0)
-            self.showT0.setCheckable(True)
-            self.showT0.setEnabled(False)
-            self.menu.addAction(self.showT0)
-            self.showS0 = QtGui.QAction(u'Afficher les marqueurs de Zone d\'intégration', self.menu)
-            self.showS0.setCheckable(True)
-            # self.showS0.triggered.connect(self.emitShowS0)
-            self.showS0.setEnabled(False)
-            self.menu.addAction(self.showS0)
-        return self.menu
-
-    def mouseDragEvent(self, ev):
-        modifiers = QtWidgets.QApplication.keyboardModifiers()
-        if modifiers == QtCore.Qt.ShiftModifier:
-            shiftkey = True
-        else:
-            shiftkey = False
-        if modifiers == QtCore.Qt.ControlModifier:
-            ctrlkey = True
-        else:
-            ctrlkey = False
-
-        if ev.button() != QtCore.Qt.MouseButton.LeftButton:
-            ev.ignore()
-            return
-
-        if ev.isStart():
-
-            # We are already one step into the drag.
-            # Find the point(s) at the mouse cursor when the button was first
-            # pressed:
-            self.downPos = ev.buttonDownPos()
-            pts = self.scatter.pointsAt(self.downPos)
-            if len(pts) == 0:
-                ev.ignore()
-                return
-            self.dragPoint = pts[0]
-            ind = pts[0].data()[0]
-            self.dragOffset = self.data['pos'][ind] - self.downPos
-            self.dragOffsets = []
-            self.startPoints = []
-            for pnt in self.data['pos']:
-                self.dragOffsets.append(pnt - self.downPos)
-                self.startPoints.append(pnt)
-
-        elif ev.isFinish():
-            self.dragPoint = None
-            return
-        else:
-            if self.dragPoint is None:
-                ev.ignore()
-                return
-
-        if shiftkey:
-            # move all the points
-            ind = self.dragPoint.data()[0]
-            n_points = len(self.data['pos'])
-            dragAmount = [None] * 2
-            if ind == 0 or ind == n_points-1:
-                # rotate about the end point
-                dragAmount[0] = ev.pos()[0] + self.dragOffsets[ind][0] - self.startPoints[ind][0]
-                dragAmount[1] = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
-                for i, (pnt, s_pnt) in enumerate(zip(self.data['pos'], self.startPoints)):
-                    if ind == 0:
-                        if pms.DRAG_MODE == 'XY':
-                            pnt[0] = self.startPoints[i][0] + dragAmount[0] * (n_points-i)/n_points
-                        pnt[1] = self.startPoints[i][1] + dragAmount[1] * (n_points-i)/n_points
-                    else:
-                        if pms.DRAG_MODE == 'XY':
-                            pnt[0] = self.startPoints[i][0] + dragAmount * i/n_points
-                        pnt[1] = self.startPoints[i][1] + dragAmount * i/n_points
-            else:
-                # move neighbour points by 1/2
-                dragAmount[0] = ev.pos()[0] + self.dragOffsets[ind][0] - self.startPoints[ind][0]
-                dragAmount[1] = ev.pos()[1] + self.dragOffsets[ind][1] - self.startPoints[ind][1]
-                if pms.DRAG_MODE == 'XY':
-                    self.data['pos'][ind][0] += dragAmount[0]
-                    self.data['pos'][ind-1][0] += dragAmount[0]*0.5
-                    self.data['pos'][ind+1][0] += dragAmount[0]*0.5
-                self.data['pos'][ind][1] += dragAmount[1]
-                self.data['pos'][ind-1][1] += dragAmount[1]*0.5
-                self.data['pos'][ind+1][1] += dragAmount[1]*0.5
-
-        if ctrlkey:
-                # move all the same
-                for i, pnt in enumerate(self.data['pos']):
-                    if pms.DRAG_MODE == 'XY':
-                        pnt[0] = ev.pos()[0] + self.dragOffsets[i][0]
-                    pnt[1] = ev.pos()[1] + self.dragOffsets[i][1]
-        else:
-            # move one point only
-            ind = self.dragPoint.data()[0]
-            if pms.DRAG_MODE == 'XY':
-                self.data['pos'][ind][0] = ev.pos()[0] + self.dragOffsets[ind][0]
-            self.data['pos'][ind][1] = ev.pos()[1] + self.dragOffsets[ind][1]
-
-        self.data['pen'] = pg.mkPen('r', width=2)
-        self.data['symbolPen'] = pg.mkPen('r', width=2)
-        self.updateGraph()
-        ev.accept()
-
-    def clicked(self, pts):
-        print("clicked: %s" % pts)
-
+labels = pms.labels
 
 class MyPushButton(QPushButton):
     def __init__(self, *args):
@@ -218,6 +40,208 @@ class MyPushButton(QPushButton):
 
         return QPushButton.event(self, event)
 
+
+class DrawingImage(pg.ImageItem):
+
+    def __init__(self, parent):
+        super().__init__()
+        self.parent: Widget = parent
+        # self.getMenu()
+        self.rois = []
+        self.selected_roi = None
+
+    def mouseClickEvent(self, ev):
+        if ev.button() == QtCore.Qt.RightButton:
+            if self.raiseContextMenu(ev):
+                ev.accept()
+
+    def raiseContextMenu(self, ev):
+        self.downPos = ev.pos()
+        menu = self.getMenu()
+        pos = ev.screenPos()
+        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
+        return True
+
+    def getMenu(self):
+        """
+        Create the menu
+        """
+        if self.menu is None:
+            self.menu = QtGui.QMenu()
+            self._addregion = QtGui.QAction("Add Region", self.menu)
+            self._addregion.triggered.connect(self.graph_addregion)
+            self.menu.addAction(self._addregion)
+
+        return self.menu
+
+    def graph_addregion(self):
+        print("graph_addregion", self.downPos)
+        pos = np.array([self.downPos.x(), self.downPos.y()])
+        self.new_roi(pos=pos, label=None, type='rectroi', name=None)
+
+        # # self.parent.set_graph_points(pos, name="RECT")
+        # self.parent.rois.append()
+        # data = self.data
+        # pos = list(data['pos'])
+        # data['pos'] = np.append(data['pos'], [[128,128]], axis=0)
+        # data['adj'][-1] = np.array([3,4])
+        # data['adj'] = np.append(data['adj'], [[4,0]], axis=0)
+        # pass
+
+    def lockX(self, roi, n, value):
+        state = roi.stateCopy()
+        ang = state['angle']
+        ang = radians(ang)
+        Rp = np.array([[cos(ang), -sin(ang)], [sin(ang), cos(ang)]])
+        Rm = np.array([[cos(-ang), -sin(-ang)], [sin(-ang), cos(-ang)]])
+        pos = np.array(state['pos'])
+        point = np.array([roi.handles[n]['pos'].x(), roi.handles[n]['pos'].y()])
+        # map back to the image and set x to zero
+        imgpoint = point @ Rp.T + pos
+        imgpoint[0] = value
+        newpoint = (imgpoint - pos) @ Rm.T
+        # print(imgpoint, newpoint, point)
+        roi.handles[n]['pos'] = QtCore.QPointF(*newpoint)
+
+    def sig_horiz_roi_update(self, roi):
+        if isinstance(roi, HorizonROI):
+            self.setROIChanged(roi, True)
+            self.lockX(roi, 0, 0.0)
+            self.lockX(roi, -3, 6000.0)
+            roi.dataChanged = True
+            # self.set_class_btn(roi)
+            self.sig_roi_update(roi)
+
+    def sig_roi_remove(self, roi):
+        logger.info('roi_remove')
+        self.parent.view.removeItem(roi)
+        self.rois.remove(roi)
+        self.selected_roi = None
+        self.set_save_btn(False)
+        # for _roi in self.rois:
+        #     if _roi is roi:
+        #         self.rois
+
+    def sig_roi_update(self, roi):
+        self.setAllROIChanged(False)
+        self.setROIChanged(roi, True)
+        self.set_class_btn(roi)
+        self.selected_roi = roi
+        self.set_save_btn(False)
+
+    def sig_roi_clicked(self, roi):
+        logger.info('roi_clicked ' + roi.state['label'])
+        self.sig_roi_update(roi)
+        self.set_save_btn(False)
+
+
+    def sig_roi_hover(self, roi):
+        pass
+        # logger.info('roi_hover')
+
+    def setAllROIChanged(self, _bool, name=None):
+        for roi in self.rois:
+            if name is None or roi.name == name:
+                roi.dataChanged = _bool
+                self.setROIChanged(roi, _bool)
+
+    def setROIChanged(self, roi, _bool):
+        label = roi.state['label']
+        color = labels[label]
+        if _bool:
+            roi.setPen(pg.mkPen(color, width=3))
+            # self.set_save_btn(False)
+        else:
+            roi.setPen(pg.mkPen(color, width=2))
+        roi.dataChanged = _bool
+
+    def getDataChanged(self):
+        for roi in self.rois:
+            if roi.dataChanged:
+                    return True
+        return False
+
+    def removeAllROI(self):
+        for roi in self.rois:
+            self.parent.view.removeItem(roi)
+        self.rois = []
+
+    def set_class_btn(self, roi):
+        # color = pms.labels[roi.state['label']] if _bool else "background-color: light gray"
+        for btn in self.parent.classButtons:
+            if btn.text() == roi.state['label']:
+                color = pms.labels[roi.state['label']]
+                btn.setStyleSheet(f"background-color: {color}")
+            else:
+                btn.setStyleSheet("background-color: light gray")
+
+    def set_save_btn(self, _bool):
+        self.parent.set_save_btn(_bool)
+
+    def removeHorizonROI(self):
+        for roi in self.rois:
+            if isinstance(roi, HorizonROI):
+                self.parent.view.removeItem(roi)
+        self.rois = [roi for roi in self.rois if not isinstance(roi, HorizonROI)]
+
+    def new_roi(self, points=None, pos=None, size=None, label=None, type=None, name=None, norm=False):
+        # if pos is None or pos.shape[0] == 0:
+        #     return
+        # else:
+        #     n_points = pos.shape[0]
+        #
+        if norm:
+            (cols, rows) = self.image.shape[:2]
+            if points is not None:
+                points[:,0] = points[:,0] * cols
+                points[:,1] = points[:,1] * rows
+                points = points.astype('int32')
+            if pos is not None:
+                pos[0] = pos[0] * cols
+                pos[1] = pos[1] * rows
+                pos = pos.astype('int32')
+            if size is not None:
+                size[0] = size[0] * cols
+                size[1] = size[1] * rows
+                size = size.astype('int32')
+            # assert max(pos[:,0]) < cols , 'columns must be less than image width '
+        if size is None:
+            size = [200,200]
+        if type.lower() == 'rectroi':
+            roi = pg.RectROI(pos, size, pen=(0, 9), removable=True)
+            roi.sigRegionChanged.connect(self.sig_roi_update)
+            roi.sigRemoveRequested.connect(self.sig_roi_remove)
+            roi.sigClicked.connect(self.sig_roi_clicked)
+            roi.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+
+        elif type.lower() == 'horizonroi' or type.lower() == 'polylineroi':
+            roi = HorizonROI(points, pos=pos, pen=pg.mkPen('g', width=2), closed=False, movable=False, removable=True)
+            # roi.state['label'] = 'Horizon'
+
+            roi.addRotateFreeHandle((points[0]+points[1])//2, points[-1])
+            roi.addRotateFreeHandle((points[-1]+points[-2])//2, points[0])
+            # roi.setPoints(pos)
+            roi.sigRegionChanged.connect(self.sig_horiz_roi_update)
+            roi.sigRemoveRequested.connect(self.sig_roi_remove)
+            roi.sigClicked.connect(self.sig_roi_clicked)
+            roi.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+            roi.sigHoverEvent.connect(self.sig_roi_hover)
+
+        else:
+            logger.warning(f'type {name} is not known')
+        if name is not None:
+            roi.name = name
+        if label is None:
+            roi.state['label'] = list(pms.labels.keys())[0]
+        else:
+            roi.state['label'] = label
+        self.parent.img.setROIChanged(roi, False)
+        roi.dataChanged = False
+        self.parent.view.addItem(roi)
+        self.rois.append(roi)
+        self.sig_roi_update(roi)   # make selected etc
+
+
 class Widget(QtWidgets.QWidget):
     def __init__(self):
         super(Widget, self).__init__()
@@ -227,52 +251,94 @@ class Widget(QtWidgets.QWidget):
         self.viewCurrentImage()
 
     def init_ui(self):
+
         self.setWindowTitle('Viewer')
-        self.widget = pg.GraphicsLayoutWidget()
-        self.img = pg.ImageItem(border='w')
-        self.graphs = []
+        self.win = pg.GraphicsLayoutWidget()
+        # self.img = pg.ImageItem(border='w')
+        self.img = DrawingImage(self)
+        # self.graphs = []
+
         # self.graphs = [Graph(name='Horizon')]
         # self.graphnames = ['obj1']
-        self.view = self.widget.addViewBox()
+        self.view = self.win.addViewBox()
         self.view.addItem(self.img)
-        # view.addItem(self.graphs[0])
 
         self.btn_autoLabel = MyPushButton("Auto Horizon")
-        self.btn_saveCSV = MyPushButton("Save CSV")
-        self.btn_readCSV = MyPushButton("Read CSV")
+        self.btn_saveROIS = MyPushButton("Save ROIS")
+        self.btn_readROIS = MyPushButton("Read ROIS")
         self.btn_free3 = MyPushButton("Free")
-        self.cbx_saveTrainMask = QtWidgets.QCheckBox("Save Training Mask")
+        self.btn_next = MyPushButton("Next")
+        self.btn_back = MyPushButton("Back")
+        self.cbx_saveROIs = QtWidgets.QCheckBox("Save ROIs")
+        # self.cbx_autoSaveROIs = QtWidgets.QCheckBox("Auto Save ROIs")
 
-        horizontalLayout1 = QtWidgets.QHBoxLayout()
-        horizontalLayout1.addWidget(self.btn_autoLabel)
-        horizontalLayout1.addWidget(self.btn_saveCSV)
-        horizontalLayout1.addWidget(self.btn_readCSV)
-        horizontalLayout1.addWidget(self.btn_free3)
-        horizontalLayout1.addWidget(self.cbx_saveTrainMask)
+        vertButtonBarLayout1 = QtWidgets.QVBoxLayout()
+        vertButtonBarLayout1.addWidget(self.btn_autoLabel)
+        vertButtonBarLayout1.addWidget(self.btn_saveROIS)
+        vertButtonBarLayout1.addWidget(self.btn_readROIS)
+        vertButtonBarLayout1.addWidget(self.btn_next)
+        vertButtonBarLayout1.addWidget(self.btn_back)
+        vertButtonBarLayout1.addWidget(self.btn_free3)
+        vertButtonBarLayout1.addWidget(self.cbx_saveROIs)
+        vertButtonBarLayout1.setAlignment(Qt.AlignTop)
 
+        horzImgWinLayout = QtWidgets.QHBoxLayout()
+        horzImgWinLayout.addWidget(self.win)
+        horzImgWinLayout.addLayout(vertButtonBarLayout1)
+
+        horzButtonBarLayout1 = QtWidgets.QHBoxLayout()
+        self.classButtons = []
+        if labels is not None:
+            for lab in labels:
+                btn = MyPushButton(lab)
+                btn.setObjectName(lab)
+                # btn.setStyleSheet(f"background-color: {labels[lab]}")
+                horzButtonBarLayout1.addWidget(btn)
+                self.classButtons.append(btn)
+
+        self.set_class_btn_colors()
 
         verticalLayout = QtWidgets.QVBoxLayout()
-        verticalLayout.addWidget(self.widget)
-
-        verticalLayout.addLayout(horizontalLayout1)
+        verticalLayout.addLayout(horzImgWinLayout)
+        verticalLayout.addLayout(horzButtonBarLayout1)
         self.setLayout(verticalLayout)
-
         self.setGeometry(100, 100, 1500, 1000)
+
+        self.text = pg.TextItem("Hello",
+            # html='<div style="text-align: center"><span style="color: #FFF;">This is the</span><br><span style="color: #FF0; font-size: 16pt;">PEAK</span></div>',
+            anchor=(-0.3, 0.5),  fill=(0, 0, 0, 100))
+        self.view.addItem(self.text)
+        self.text.setPos(1000, 4100)
+        # self.text.setPointSize(16)
+        self.text.setPlainText('Filename')
         self.show()
 
-    def setDataChanged(self, _bool, name=None):
-        self.setGraphColour(_bool, name)
-        # do this after changing the colour
-        for graph in self.graphs:
-            if name is None or graph.name == name:
-                graph.dataChanged = _bool
+    def setImageLabel(self, text=''):
+        self.text.setPlainText(text)
 
-    def getDataChanged(self, name=None):
-        for graph in self.graphs:
-            if graph.name == name:
-                return self.graphs[0].dataChanged
+    def qt_connections(self):
+        self.btn_autoLabel.clicked.connect(self.btn_autoLabel_clicked)
+        self.btn_saveROIS.clicked.connect(self.btn_saveROIS_clicked)
+        self.btn_readROIS.clicked.connect(self.btn_readROIS_clicked)
+        # self.btn_next.clicked.connect(self.btn_next_clicked)
+        # self.btn_back.clicked.connect(self.btn_back_clicked)
+        self.btn_free3.clicked.connect(self.btn_free3button_clicked)
+        for btn in self. classButtons:
+            btn.clicked.connect(self.btn_set_current_roi_label)
+
+    def set_class_btn_colors(self):
+        for btn in self. classButtons:
+            btn.setStyleSheet(f"background-color: {labels[btn.text()]}")
+
+    def set_save_btn(self, _bool):
+        if _bool is None:
+            self.btn_saveROIS.setStyleSheet("background-color: light gray")
+            return
+        if _bool:
+            self.btn_saveROIS.setStyleSheet("background-color: green")
         else:
-            return False
+            self.btn_saveROIS.setStyleSheet("background-color: red")
+
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Q or event.key() == QtCore.Qt.Key_Escape :
@@ -286,11 +352,6 @@ class Widget(QtWidgets.QWidget):
         self._key_press = None
         return ret
 
-    def qt_connections(self):
-        self.btn_autoLabel.clicked.connect(self.btn_autoLabel_clicked)
-        self.btn_saveCSV.clicked.connect(self.btn_saveCSV_clicked)
-        self.btn_readCSV.clicked.connect(self.btn_readCSV_clicked)
-        self.btn_free3.clicked.connect(self.btn_free3button_clicked)
 
     def viewCurrentImage(self, img=None):
         try:
@@ -299,74 +360,45 @@ class Widget(QtWidgets.QWidget):
             out = cv2.transpose(img)
             out = cv2.flip(out, flipCode=1)
             self.img.setImage(out)
-            self.display_image = out
+            # self.display_image = out
 
 
         except Exception as e:
             logger.error(e)
             pass
 
-    def set_horizon_points(self, pos=None, name=None):
-        if pos is None:
-            n_points = pms.NUM_HORIZON_POINTS
-            (c,r) = self.display_image.shape[:2]
-            x = np.linspace(0, c-1, n_points)
-            pos = np.column_stack((x, np.ones(n_points) * r//4))
-            pass
-        else:
-            n_points = pos.shape[0]
-            (cols, rows) = self.display_image.shape[:2]
-            pos[:,0] = pos[:,0] * cols
-            pos[:,1] = pos[:,1] * rows
-            assert max(pos[:,0]) < cols , 'columns must be less than image width '
-        adj = np.stack([np.arange(n_points), np.arange(1, n_points+1)]).transpose()
-        adj[-1,1] = 0
-        # pen = pg.mkPen('g', width=2)
-        # self.graph.setData(pos=pos, adj=adj, size=10, pen=pen, symbol='o', symbolPen=pen, symbolBrush=(50, 50, 200, 00), pxMode=False)
-        done = False
-        for graph in self.graphs:
-            if graph.name == name:
-                graph.setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
-                done = True
-        if not done:
-            self.graphs.append(Graph(name=name))
-            self.view.addItem(self.graphs[-1])
-            self.graphs[-1].setData(pos=pos, adj=adj, size=10, symbol='o', symbolBrush=(50, 50, 200, 00), pxMode=False)
+    def btn_set_current_roi_label(self):
+        # find selected roi and chane label
+        roi = self.img.selected_roi
+        if roi is not None:
+            roi.state['label'] = self.sender().text()
+            self.img.sig_roi_update(roi)
 
-    def setGraphColour(self, _bool, name=None):
-        for graph in self.graphs:
-            if name is None or graph.name == name:
-                if _bool:
-                    # self.graph.pen = pg.mkPen('r', width=2)
-                    # self.graph.symbolPen = pg.mkPen('r', width=2)
-                    graph.data['pen'] = pg.mkPen('r', width=2)
-                    graph.data['symbolPen'] = pg.mkPen('r', width=2)
-                else:
-                    # self.graph.pen = pg.mkPen('g', width=2)
-                    # self.graph.symbolPen = pg.mkPen('g', width=2)
-                    graph.data['pen'] = pg.mkPen('g', width=2)
-                    graph.data['symbolPen'] = pg.mkPen('g', width=2)
-
-                graph.updateGraph()
 
     def btn_autoLabel_clicked(self):
         print("btn_autoLabel_clicked Not Implemented")
         # raise NotImplementedError
 
-    def btn_saveCSV_clicked(self):
-        print("btn_showCSV_clicked Not Implemented")
+    def btn_saveROIS_clicked(self):
+        print("btn_saveROIS_clicked Not Implemented")
         # raise NotImplementedError
 
-    def btn_readCSV_clicked(self):
-        print ("btn_readCSV_clicked Not Implemented")
+    def btn_readROIS_clicked(self):
+        print ("btn_readROIS_clicked Not Implemented")
+        # raise NotImplementedError
+    def btn_next_clicked(self):
+        print ("btn_next_clicked Not Implemented")
+        # raise NotImplementedError
+    def btn_back_clicked(self):
+        print ("btn_back_clicked Not Implemented")
         # raise NotImplementedError
 
     def btn_free3button_clicked(self):
         print ("on_free1button_clicked Not Implemented")
         # raise NotImplementedError
 
-
 import cv2
+
 
 class Viewer(Widget):
     def __init__(self, process):
@@ -378,13 +410,26 @@ class Viewer(Widget):
         self.timer.timeout.connect(self.run_timer)
         self.timer.start(1)
         super().__init__()
+        # self.addLabel("<b>Standard mouse interaction:</b><br>left-drag to pan, right-drag to zoom.")
 
-    def open(self):
+
+    def open(self, param_tree=None):
+        if param_tree is not None:
+            param_tree.show()
+            param_tree.p.sigTreeStateChanged.connect(self.param_change)
+            self.param_tree = param_tree
         self.app.exec_()
 
+    # def close(self):
+    #     print('bye')
+    #     # self.param_tree.close()
+    #     sys.exit(self.app)
+
     def close(self):
-        print('bye')
-        sys.exit(self.app)
+        print('Closing Viewer')
+        self.win.close()
+        # self.timer_stop()
+        QCoreApplication.quit()
 
     def run_timer(self):
 
@@ -395,69 +440,55 @@ class Viewer(Widget):
         else:
             self.close()
 
-    def setCurrentImages(self, g_images, with_image):
-        setGImages(g_images, with_image)
-        self.setDataChanged(False)
+    def getDataChanged(self):
+        return self.img.getDataChanged()
 
-    def setCurrentImage(self, img=None):
+    # def setCurrentImages(self, g_images, with_image):
+    #     setGImages(g_images, with_image)
+    #     self.setAllROIChanged(False)
 
-        # self.imageWidget.viewCurrentImage(img)
-        # self.imageWidget.set_horizon_points()
-        self.viewCurrentImage(img)
-        self.set_horizon_points()
+    # def setCurrentImage(self, img=None):
+    #
+    #     # self.imageWidget.viewCurrentImage(img)
+    #     # self.imageWidget.set_graph_points()
+    #     self.viewCurrentImage(img)
+    #     self.set_graph_points()
 
     def btn_autoLabel_clicked(self):
-        self.setDataChanged(True)
+        self.setFocus()
+        self.img.setAllROIChanged(True)
         pos = mask2pos(getGImages().horizon)
-        self.set_horizon_points(pos, name='Horizon')
+        # remove existing HorizonROI
+        self.img.removeHorizonROI()
+        self.img.new_roi(pos, type='HorizonROI', label='Horizon', norm=False)
+        self.setFocus()   # otherwise button has key focus
 
-
-    def btn_saveCSV_clicked(self):
-        print("btn_saveCSV_clicked")
-        self.saveCSV()
-        if self.cbx_saveTrainMask.checkState():
+    def btn_saveROIS_clicked(self):
+        print("btn_saveROIS_clicked")
+        if self.cbx_saveROIs.checkState():
             self.saveTrainMask()
-
-    def saveCSV(self):
-        # print(self.graph.data['pos'])
-        # pos = self.graphs[0].data['pos']
-        name = self.graphs[0].name
-        (cols, rows) = self.display_image.shape[:2]
-        # pos[:, 0] = pos[:, 0] / cols
-        # pos[:, 1] = pos[:, 1] / rows
-        file_path = getGImages().file_path
-        # file_name = Path(file_path).name
-        # old_writecsv(file_path, pos, name)
-        writecsv(file_path, self.graphs, cols, rows)
-        self.setDataChanged(False)
-        # self.set_horizon_points(pos)
-
-
-    def btn_readCSV_clicked(self):
-        print("btn_readCSV_clicked")
-        self.readCSV()
-
-    def readCSV(self):
-        file_path = getGImages().file_path
-        _pos =  readcsv(file_path)
-
-        if _pos is None:
-            self.setDataChanged(True)
-            ret = False
+            self.saveROIS()
+            self.set_save_btn(True)
         else:
-            # name = _pos[0][0]
-            # _pos = _pos[0][1]
-            # if name == 'Horizon':
-            for p in _pos:
-                name = p[0]
-                _p = p[1]
-                self.set_horizon_points(_p, name=name)
-                self.setDataChanged(False, name=name)
-                ret = True
+            print("Nothing Saved: cbx_saveROIs is not set")
 
-        return ret
+        self.setFocus()   # otherwise button has key focus
+
+    def saveROIS(self):
+        self.set_class_btn_colors()
+        (cols, rows) = self.img.image.shape[:2]
+        file_path = getGImages().file_path
+        write_rois(file_path, self.img.rois, cols, rows)
+        self.img.setAllROIChanged(False)
+
+    def btn_readROIS_clicked(self):
+        print("btn_readLabels_clicked")
+        self.read_rois()
+        self.setFocus()   # otherwise button has key focus
 
     def saveTrainMask(self):
+        print(" SaveTrainMask : Not implemented ")
+        return
         path = Path(getGImages().file_path)
         jpgDir = path.parents[1]/pms.jpgDir
         Path.mkdir(jpgDir, exist_ok=True)
@@ -486,81 +517,109 @@ class Viewer(Widget):
         logger.info(f"Writing jpg and mask {fn} + jpg")
 
 
-def old_writecsv(file_path, _pos):
+    ## If anything changes in the paremeter tree, print a message
+    def param_change(self, param, changes):
+        print("tree changes:")
+
+
+    def read_rois(self, norm=True):
+        import re
+        import json
+
+        FLAGS = re.VERBOSE | re.MULTILINE | re.DOTALL
+        WHITESPACE = re.compile(r'[ \t\n\r]*', FLAGS)
+
+        def grabJSON(s):
+            """Takes the largest bite of JSON from the string.
+               Returns (object_parsed, remaining_string)
+            """
+            decoder = json.JSONDecoder()
+            obj, end = decoder.raw_decode(s)
+            end = WHITESPACE.match(s, end).end()
+            return obj, s[end:]
+
+        self.set_class_btn_colors()
+
+        file_path = getGImages().file_path
+        self.img.setAllROIChanged(True)
+        try:
+            with open(Path(file_path).with_suffix('.txt'), 'r') as file:
+                self.img.removeAllROI()  # file found so delete exsiting rois
+                # with open(file_path) as f:
+                s = file.read()
+                s = s.replace("\'", "\"")
+
+            while True:
+                obj, remaining = grabJSON(s)
+                # setState
+                pos = obj['pos']
+                pos = np.array(pos)
+                size = obj['size']
+                size = np.array(size)
+                ang = obj['angle']
+                ang = radians(ang)
+                ## create rotation transform
+                type = obj['type']
+
+                points = None
+                if type == "PolyLineROI" or type == "HorizonROI":
+                    points = obj['points']
+                    R = np.array([[cos(ang), -sin(ang)], [sin(ang), cos(ang)]])
+                    points = np.array(points)
+                    points = points @ R.T + pos
+                if "name" in obj:
+                    name = obj['name']
+                else:
+                    name = None
+
+                self.img.new_roi(points, pos=pos, size=size, label=obj['label'], type=type, name=name, norm=norm)
+
+                s = remaining
+                if not remaining.strip():
+                    break
+            self.img.setAllROIChanged(False)
+            self.set_save_btn(True)
+        except Exception as e:
+            logger.warning(f"Error Reading label file {Path(file_path).with_suffix('.txt')} : {e}")
+            self.set_save_btn(False)
+            return None
+
+    # def setText(self, text=''):
+    #     pg.TextItem(text, color=(200, 200, 200), html=None, anchor=(0, 0), border=None, fill=None,
+    #             angle=0, rotateAxis=None)
+
+def write_rois(file_path, rois, cols, rows, norm=True):
     file_path = Path(file_path)
     filename = file_path.name
-    try:
-        with open(file_path.with_suffix('.txt'), 'w') as f:
-            write = csv.writer(f)
-            write.writerows([['Filename', filename]])
-            write.writerows([['Name', 'Horizon']])
-            write.writerows(_pos)
-        logger.info(f"Writing CSV {file_path.with_suffix('.txt')}")
-    except Exception as e:
-        logger.info(e)
-
-
-def writecsv(file_path, graphs, cols, rows):
-    file_path = Path(file_path)
-    filename = file_path.name
 
     try:
-        with open(file_path.with_suffix('.txt'), 'w') as f:
-            write = csv.writer(f)
-            write.writerows([['Filename', filename]])
-            for graph in graphs:
-                pos = graph.data['pos'].copy()
-                name = graph.name
-                pos[:, 0] = pos[:, 0] / cols
-                pos[:, 1] = pos[:, 1] / rows
-                write.writerows([['Name', name]])
-                write.writerows(pos)
-        logger.info(f"Writing CSV {file_path.with_suffix('.txt')}")
+        with open(file_path.with_suffix('.txt'), 'w') as file:
+            for roi in rois:
+                d = roi.saveState()
+                # d['filename'] = filename
+                if isinstance(roi, pg.PolyLineROI):
+                    d['type'] = "PolyLineROI"
+                elif isinstance(roi, HorizonROI):
+                    d['type'] = "HorizonROI"
+                elif isinstance(roi, pg.RectROI):
+                    d['type'] = "RectROI"
+
+                d['label'] = roi.state['label']
+                if norm:
+                    if isinstance(roi, pg.PolyLineROI) or isinstance(roi, HorizonROI):
+                        d['points'] = [(_d[0] / cols, _d[1] / rows) for _d in d['points']]
+                    d['pos'] = (d['pos'][0] / cols, d['pos'][1] / rows)
+                    d['size'] = (d['size'][0] / cols, d['size'][1] / rows)
+                json.dump(d, file, indent=4)
+
+        logger.info(f"Writing label file {file_path.with_suffix('.txt')}")
     except Exception as e:
-        logger.info(e)
+        logger.warning(f"Error Writing label file {file_path.with_suffix('.txt')} : {e}")
 
-
-def readcsv(file_path):
-        file_path = Path(file_path)
-    # try:
-        with open(file_path.with_suffix('.txt'), 'r') as file:        # self.imageWidget = Widget()
-            reader = csv.reader(file)
-            objects = []
-            lines = []
-            currentName = None
-            for row in reader:
-                if len(row) == 0 :
-                    continue
-                if row[0] == 'Filename' or row[0] == 'File':
-                    filename = row[1]
-                    continue
-                elif row[0] == 'Name':
-                    if currentName is not None:
-                        nplines = [[float(c) for c in r] for r in lines[1:]]
-                        nplines = np.array(nplines)
-                        objects.append([currentName, nplines])
-                    currentName = row[1]
-                    lines = []
-
-                lines.append(row)
-                # print(row)
-            nplines = [[float(c) for c in r] for r in lines[1:]]
-            nplines = np.array(nplines)
-            objects.append([currentName, nplines])
-        # if lines[0][o] == 'Filename':
-        #     filename = lines[0][1]
-
-        # lines = [[float(c) for c in r] for r in lines[1:] ]
-        # lines = np.array(lines)
-
-            return objects
-    # except Exception as e:
-    #     logger.warning(e)
-    #     return None
-
-def mask2pos(mask):
+def mask2pos(mask, addbottom=False):
     n_points = pms.NUM_HORIZON_POINTS
     (rows, cols) = mask.shape
+    # (rows, cols) = (4000, 6000)
     c_pnts = np.linspace(0, cols - 1, n_points + 1)
     c_pnts[-1] = cols-1
     pos = []
@@ -568,11 +627,14 @@ def mask2pos(mask):
         # find row in column c that is non zero
         vcol = mask[::-1,int(c)]
         hpnt = np.argmax(vcol==0)
-        pos.append([c/cols, hpnt/rows])
-
-    pos.append([c / cols, 0.0])
-    pos.append([0.0, 0.0])
-    return np.asarray(pos)
+        # pos.append([c/cols, hpnt/rows])
+        pos.append([c, hpnt])
+    if addbottom:
+        # pos.append([c / cols, 0.0])
+        pos.append([c, 0.0])
+        pos.append([0.0, 0.0])
+    pos = np.asarray(pos) * 12
+    return pos
     # return
 
 
@@ -610,8 +672,8 @@ if __name__ == '__main__':
 
     print('here')
     viewer = Viewer(test)
-    viewer.setCurrentImage()
-    viewer.readCSV()
+    # viewer.setCurrentImage()
+    viewer.readROIS()
     # viewer.viewCurrentImage(getGImages().mask)
     viewer.open()
     viewer.close()

@@ -31,7 +31,7 @@ class _ImageLoader:
         self.dataset = self.parse_input(self.path)
         self.dataset.sort()
         self.frame_num = 0
-        self.direction_fwd = True
+        self._direction_fwd = True
         self.restep = False
 
     def parse_input(self, path):
@@ -198,12 +198,21 @@ class ImageLoader(_ImageLoader):
 
     def __next__(self):
         self.fps.update()
-        if not self.restep:
-            self.frame_num += 1 if self.direction_fwd else -1
-        self.restep = False
+        # if not self.restep:
+        #     self.frame_num += 1 if self._direction_fwd else -1
+        # self.restep = False
+
+        last_frame_num = self.frame_num
+        if self._direction_fwd and self.frame_num < self.__len__():
+            self.frame_num += 1
+        if not self._direction_fwd and self.frame_num >= 0:
+            self.frame_num -= 1
 
         # self.sample_idx += 1
-        if self.frame_num < self.__len__() and self.frame_num >= 0:
+        if last_frame_num != self.frame_num:
+            # if not self.restep:
+            #     self.frame_num += 1 if self._direction_fwd else -1
+            # self.restep = False
             if INTHREAD:
                 self._release_last_image()
                 # running in separate thread allows the jpeg loading to take place during any sleep/wait time
@@ -217,6 +226,8 @@ class ImageLoader(_ImageLoader):
 
         else:
             raise StopIteration
+
+
 
 
     def close(self):
@@ -242,12 +253,13 @@ if __name__ == '__main__':
 
     # path = 'Z:/Day2/seq1/'
     filename = home + "/data/large_plane/images/DSC00176.JPG"
-    path = home + "/data/large_plane/images/"
+    path = home + "/data/testImages/original/"
 
 
     loader = ImageLoader(path + '*.JPG', mode='BGR', cvtgray=False)
 
     wait_timeout = 30     # todo !!! need to fix missing frames, might need to try a queue
+    wait_timeout = 0
     last_img_path = ''
     # (image, img_path), frameNum, grabbed
     for (image, img_path), frameNum, grabbed in iter(loader):
@@ -274,9 +286,10 @@ if __name__ == '__main__':
             wait_timeout = 0
         if k == ord('d'):
             wait_timeout = 0
-            loader.direction_fwd = not loader.direction_fwd
+            loader._direction_fwd = not loader._direction_fwd
+
         if k == ord('g'):
-            wait_timeout = 100
+            wait_timeout = 1
         if k == ord('r'):
             # change direction
             wait_timeout = 0
