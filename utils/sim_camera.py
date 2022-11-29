@@ -97,7 +97,6 @@ class CameraThread:
         self.cvtgray = cvtgray
 
         self.dataset = self.parse_input(self.path)
-        self.dataset.sort()
         self.get_frame_num = 0
         self.frameid = -1
         self._direction_fwd = True
@@ -116,10 +115,11 @@ class CameraThread:
             self.pixel_format = TJPF_BGR
 
     def parse_input(self, path):
-        files =  glob.glob(self.path)
+        files =  glob.glob(self.path + '*.JPG')
         if len(files) <= 1:
             print(f"No files found in {self.path}")
             return []
+        files.sort()
         return files
 
     def start(self):
@@ -250,7 +250,7 @@ if __name__ == '__main__':
     # cam_serials = ['40083688']
     # cam_names = ['FrontCentre']
     # cam_offsetYs = [280]
-    cam = CameraThread('simcam', path+ '*.JPG', )
+    cam = CameraThread('simcam', path, )
     cam.start()
     idx = 1
     direction = 1

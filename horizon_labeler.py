@@ -105,17 +105,18 @@ def get_image(cam, idx):
         grabbed = False
         # setTimeout(PAUSE_TIMEOUT)
     if grabbed:
-
-        if viewer.cbx_saveROIs.checkState() and viewer.getDataChanged():
-            # logger.info('Saving Mask')
-            # viewer.saveTrainMask()
-            logger.info('Saving ROIS')
-            viewer.saveROIS()
-
-        setGImages(frame, filename)
-        getGImages().mask_sky()
-        gray_img_s = getGImages().small_gray.copy()
-        getGImages().horizon = set_horizon(gray_img_s)
+        return (grabbed, frame, filename, id)
+    #
+    #     if viewer.cbx_saveROIs.checkState() and viewer.getDataChanged():
+    #         # logger.info('Saving Mask')
+    #         # viewer.saveTrainMask()
+    #         logger.info('Saving ROIS')
+    #         viewer.saveROIS()
+    #
+    #     setGImages(frame, filename)
+    #     getGImages().mask_sky()
+    #     gray_img_s = getGImages().small_gray.copy()
+    #     getGImages().horizon = set_horizon(gray_img_s)
 
         # cv2.imshow('small_rgb', cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR))
         # cv2.imshow('mask_sky', getGImages().mask)
@@ -142,17 +143,17 @@ if __name__ == '__main__':
     # crop = None
     home = str(Path.home())
     # path = 'Z:/Day2/seq1/'
-    path = home+"/data/large_plane/images"
+    path = home+"/data/large_plane/images/"
     # path = home+"/data/ardmore_30Nov21"
-    path = home+"/data/Karioitahi_15Jan2022/123MSDCF-35mm"
+    path = home+"/data/Karioitahi_15Jan2022/123MSDCF-35mm/"
     # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm(subset)"
     # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm"
-    path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
+    path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/"
     # path = home+"/data/Tairua_15Jan2022/109MSDCF"
-    path = home+"/data/testImages/original"
-    path = home+"/data/test1"
+    path = home+"/data/testImages/original/"
+    path = home+"/data/test1/"
 
-    cam = CameraThread('simcam', path + '/*.JPG', mode='RGB')
+    cam = CameraThread('simcam', path, mode='RGB')
     cam.start()
     # path = easygui.diropenbox( default=home+"/data/")
 
@@ -175,8 +176,6 @@ if __name__ == '__main__':
         def getTimeout():
             return ops.wait_timeout
 
-
-
         # if k == ord(' '):
         #     idx += ops.direction_fwd
         #     idx = cam.get_next(idx)
@@ -187,6 +186,8 @@ if __name__ == '__main__':
         k = cv2.waitKey(ops.wait_timeout)
         if k == -1:
             k = qt_get_keypress()
+        else:
+            print('key = ', k)
         if isinstance(k, str):
             k = k.upper()
 
@@ -207,8 +208,20 @@ if __name__ == '__main__':
             k = ord(' ')
 
         if ops.wait_timeout != PAUSE_TIMEOUT or k == ord(' ') or firstRun:
+            (grabbed, frame, filename, id) = get_image(cam, ops.frame_idx)
+            if grabbed:
 
-            if get_image(cam, ops.frame_idx):
+                if viewer.cbx_saveROIs.checkState() and viewer.getDataChanged():
+                    # logger.info('Saving Mask')
+                    # viewer.saveTrainMask()
+                    logger.info('Saving ROIS')
+                    viewer.saveROIS()
+
+                setGImages(frame, filename)
+                getGImages().mask_sky()
+                gray_img_s = getGImages().small_gray.copy()
+                getGImages().horizon = set_horizon(gray_img_s)
+
                 # print('display frame', ops.frame_idx)
                 image = getGImages().full_rgb
                 file_path = getGImages().file_path
@@ -216,9 +229,6 @@ if __name__ == '__main__':
                 if not viewer.read_rois():
                     setTimeout(PAUSE_TIMEOUT)
 
-                frameNum = "???"
-                viewer.setWindowTitle(f'{file_path}')
-                viewer.setImageLabel(f'{file_path}')
                 # viewer.setText
                 # pg.TextItem(text='', color=(200, 200, 200), html=None, anchor=(0, 0), border=None, fill=None,
                 #                    angle=0, rotateAxis=None)

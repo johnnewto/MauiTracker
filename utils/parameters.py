@@ -2,7 +2,7 @@ import logging
 LOGGING_LEVEL = logging.INFO
 DRAG_MODE = 'X'
 DRAG_MODE = 'XY'
-NUM_HORIZON_POINTS = 11    # includes the last column
+NUM_HORIZON_POINTS = 21    # includes the last column
 jpgDir = 'jpgDir'
 maskDir = 'maskDir'
 
@@ -22,9 +22,11 @@ color = {
 }
 
 labels = {'Plane': color['Orange'],
-      'Bird': color['Violet'],
-      'Hang glider': color['Indigo'],
-      'Micro lite': color['Blue'],
-      'Boat': color['Green'],
-      'Horizon': color['Red'],
-      }
+    'Bird': color['Violet'],
+    'Hang glider': color['Indigo'],
+    'Paraglider': color['Aqua'],
+    'Car': color['Blue'],
+    'Boat': color['Green'],
+    'Person': color['White'],
+    'Horizon': color['Red'],
+    }

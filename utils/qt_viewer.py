@@ -45,10 +45,13 @@ class DrawingImage(pg.ImageItem):
 
     def __init__(self, parent):
         super().__init__()
-        self.parent: Widget = parent
+        self.parent = parent
+        # self.parent: Widget = parent
         # self.getMenu()
         self.rois = []
         self.selected_roi = None
+        self._currentClassLabel = list(pms.labels.keys())[0]
+        self._currentROISize = None
 
     def mouseClickEvent(self, ev):
         if ev.button() == QtCore.Qt.RightButton:
@@ -59,7 +62,7 @@ class DrawingImage(pg.ImageItem):
         self.downPos = ev.pos()
         menu = self.getMenu()
         pos = ev.screenPos()
-        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
+        menu.popup(QtCore.QPoint(int(pos.x()), int(pos.y())))
         return True
 
     def getMenu(self):
@@ -67,7 +70,7 @@ class DrawingImage(pg.ImageItem):
         Create the menu
         """
         if self.menu is None:
-            self.menu = QtGui.QMenu()
+            self.menu = QtWidgets.QMenu()
             self._addregion = QtGui.QAction("Add Region", self.menu)
             self._addregion.triggered.connect(self.graph_addregion)
             self.menu.addAction(self._addregion)
@@ -77,7 +80,10 @@ class DrawingImage(pg.ImageItem):
     def graph_addregion(self):
         print("graph_addregion", self.downPos)
         pos = np.array([self.downPos.x(), self.downPos.y()])
-        self.new_roi(pos=pos, label=None, type='rectroi', name=None)
+        label = self.get_current_class_label()
+        size = self.get_current_ROI_size()
+
+        self.new_roi(pos=pos, label=label, size=size, type='rectroi', name=None)
 
         # # self.parent.set_graph_points(pos, name="RECT")
         # self.parent.rois.append()
@@ -131,6 +137,8 @@ class DrawingImage(pg.ImageItem):
 
     def sig_roi_clicked(self, roi):
         logger.info('roi_clicked ' + roi.state['label'])
+        self.set_current_class_label(roi.state['label'])
+        self.set_current_ROI_size(roi.state['size'])
         self.sig_roi_update(roi)
         self.set_save_btn(False)
 
@@ -175,8 +183,21 @@ class DrawingImage(pg.ImageItem):
             else:
                 btn.setStyleSheet("background-color: light gray")
 
+    def get_current_class_label(self):
+        return self._currentClassLabel
+
+    def set_current_class_label(self, label):
+        self._currentClassLabel = label
+
+    def get_current_ROI_size(self):
+        return self._currentROISize
+
+    def set_current_ROI_size(self, size):
+        self._currentROISize = size
+
     def set_save_btn(self, _bool):
         self.parent.set_save_btn(_bool)
+
 
     def removeHorizonROI(self):
         for roi in self.rois:
@@ -262,24 +283,34 @@ class Widget(QtWidgets.QWidget):
         # self.graphnames = ['obj1']
         self.view = self.win.addViewBox()
         self.view.addItem(self.img)
-
+        self._state = self.view.getState()
+        self._state['aspectLocked'] = True
+        self.view.setState(self._state)
+        # self.view.setLimits(xMin=-1000, xMax=7000, yMin=-1000, yMax=5000, minXRange=1000, maxXRange=10000)
+        # self.view.setLimits(xMin=-1000, xMax=6000, yMin=-1000, yMax=5000, minXRange=200)
+        # self.setPanLimits()
         self.btn_autoLabel = MyPushButton("Auto Horizon")
         self.btn_saveROIS = MyPushButton("Save ROIS")
         self.btn_readROIS = MyPushButton("Read ROIS")
         self.btn_free3 = MyPushButton("Free")
         self.btn_next = MyPushButton("Next")
         self.btn_back = MyPushButton("Back")
+        self.btn_openDir = MyPushButton("Open Directory")
         self.cbx_saveROIs = QtWidgets.QCheckBox("Save ROIs")
+
+
         # self.cbx_autoSaveROIs = QtWidgets.QCheckBox("Auto Save ROIs")
 
         vertButtonBarLayout1 = QtWidgets.QVBoxLayout()
         vertButtonBarLayout1.addWidget(self.btn_autoLabel)
+        vertButtonBarLayout1.addWidget(self.cbx_saveROIs)
         vertButtonBarLayout1.addWidget(self.btn_saveROIS)
         vertButtonBarLayout1.addWidget(self.btn_readROIS)
         vertButtonBarLayout1.addWidget(self.btn_next)
         vertButtonBarLayout1.addWidget(self.btn_back)
         vertButtonBarLayout1.addWidget(self.btn_free3)
-        vertButtonBarLayout1.addWidget(self.cbx_saveROIs)
+        vertButtonBarLayout1.addWidget(self.btn_openDir)
+
         vertButtonBarLayout1.setAlignment(Qt.AlignTop)
 
         horzImgWinLayout = QtWidgets.QHBoxLayout()
@@ -313,6 +344,10 @@ class Widget(QtWidgets.QWidget):
         self.text.setPlainText('Filename')
         self.show()
 
+    def setPanLimits(self, xy=1000):   #jn
+        (c,r,z) = self.img.image.shape
+        self.view.setLimits(xMin=-1000, xMax=c+1000, yMin=-1000, yMax=r+1000, minXRange=200)
+
     def setImageLabel(self, text=''):
         self.text.setPlainText(text)
 
@@ -322,11 +357,17 @@ class Widget(QtWidgets.QWidget):
         self.btn_readROIS.clicked.connect(self.btn_readROIS_clicked)
         # self.btn_next.clicked.connect(self.btn_next_clicked)
         # self.btn_back.clicked.connect(self.btn_back_clicked)
+        self.btn_openDir.clicked.connect(self.btn_openDir_clicked)
+
         self.btn_free3.clicked.connect(self.btn_free3button_clicked)
         for btn in self. classButtons:
             btn.clicked.connect(self.btn_set_current_roi_label)
 
     def set_class_btn_colors(self):
+        for btn in self. classButtons:
+            btn.setStyleSheet(f"background-color: {labels[btn.text()]}")
+
+    def getClassButtonActive(self):
         for btn in self. classButtons:
             btn.setStyleSheet(f"background-color: {labels[btn.text()]}")
 
@@ -352,17 +393,24 @@ class Widget(QtWidgets.QWidget):
         self._key_press = None
         return ret
 
+    def labelImage(self):
+        filename = Path(getGImages().file_path)
+        filename_rois = filename.with_suffix('.txt')
+        if not filename_rois.is_file():
+            filename_rois = Path('')
+        self.setWindowTitle(f'{filename.name}')
+        self.setImageLabel(f'{filename.name}    :     {filename_rois.name}')
 
     def viewCurrentImage(self, img=None):
         try:
             if img is None:
-                img = getGImages().small_rgb
+                img = getGImages().full_rgb
             out = cv2.transpose(img)
             out = cv2.flip(out, flipCode=1)
             self.img.setImage(out)
-            # self.display_image = out
-
-
+            self.setPanLimits(xy=1000)
+            self.img.viewTransform()
+            self.labelImage()
         except Exception as e:
             logger.error(e)
             pass
@@ -370,6 +418,7 @@ class Widget(QtWidgets.QWidget):
     def btn_set_current_roi_label(self):
         # find selected roi and chane label
         roi = self.img.selected_roi
+        self.img.set_current_class_label(self.sender().text())
         if roi is not None:
             roi.state['label'] = self.sender().text()
             self.img.sig_roi_update(roi)
@@ -392,9 +441,14 @@ class Widget(QtWidgets.QWidget):
     def btn_back_clicked(self):
         print ("btn_back_clicked Not Implemented")
         # raise NotImplementedError
+    def btn_openDir_clicked(self):
+        print ("btn_openDir_clicked Not Implemented")
+        # raise NotImplementedError
+
 
     def btn_free3button_clicked(self):
         print ("on_free1button_clicked Not Implemented")
+        self.view.setState(self._state)
         # raise NotImplementedError
 
 import cv2
@@ -443,17 +497,6 @@ class Viewer(Widget):
     def getDataChanged(self):
         return self.img.getDataChanged()
 
-    # def setCurrentImages(self, g_images, with_image):
-    #     setGImages(g_images, with_image)
-    #     self.setAllROIChanged(False)
-
-    # def setCurrentImage(self, img=None):
-    #
-    #     # self.imageWidget.viewCurrentImage(img)
-    #     # self.imageWidget.set_graph_points()
-    #     self.viewCurrentImage(img)
-    #     self.set_graph_points()
-
     def btn_autoLabel_clicked(self):
         self.setFocus()
         self.img.setAllROIChanged(True)
@@ -468,6 +511,7 @@ class Viewer(Widget):
         if self.cbx_saveROIs.checkState():
             self.saveTrainMask()
             self.saveROIS()
+            self.labelImage()
             self.set_save_btn(True)
         else:
             print("Nothing Saved: cbx_saveROIs is not set")
@@ -482,9 +526,19 @@ class Viewer(Widget):
         self.img.setAllROIChanged(False)
 
     def btn_readROIS_clicked(self):
-        print("btn_readLabels_clicked")
+        print("btn_readROIS_clicked")
         self.read_rois()
         self.setFocus()   # otherwise button has key focus
+
+    def btn_openDir_clicked(self):
+        print("btn_openDir_clicked")
+        # self.read_rois()
+        filepath = Path(getGImages().file_path)
+        dir_ = QtGui.QFileDialog.getExistingDirectory(None, 'Select a folder:', str(filepath.parent),
+                                                      QtGui.QFileDialog.ShowDirsOnly)
+
+        logger.info(f"Directory Selected {dir_}")
+        self.setFocus()  # otherwise button has key focus
 
     def saveTrainMask(self):
         print(" SaveTrainMask : Not implemented ")
@@ -541,6 +595,7 @@ class Viewer(Widget):
         self.set_class_btn_colors()
 
         file_path = getGImages().file_path
+
         self.img.setAllROIChanged(True)
         try:
             with open(Path(file_path).with_suffix('.txt'), 'r') as file:
@@ -646,23 +701,18 @@ if __name__ == '__main__':
     # images = Images()
     # image = cv2.cvtColor(cv2.imread())
     # filename = '/home/jn/data/Tairua_15Jan2022/109MSDCF/DSC03288.JPG'
-    filename = '/home/jn/data/testImages/original/DSC01013.JPG'
+    filename = '/home/jn/data/test2/DSC01013.JPG'
+    # filename = '/home/jn/data/test2/vlcsnap1.png'
     image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_RGB2BGR)
 
     setGImages(image, filename)
     getGImages().mask_sky()
     gray_img_s = getGImages().small_gray.copy()
     getGImages().horizon = set_horizon(gray_img_s)
-    cv2.imshow('horizon', getGImages().horizon)
-
-    cv2.imshow('mask_sky', getGImages().mask)
 
     pos = mask2pos(getGImages().horizon)
 
     def test(_viewer, qt_get_keypress):
-        # _viewer.update_image(images)
-
-        # cv2.imshow('small_rgb', cv2.cvtColor(getGImages().small_rgb, cv2.COLOR_RGB2BGR))
         k = cv2.waitKey(100)
 
         if k == ord('q') or k == 27:
@@ -672,9 +722,6 @@ if __name__ == '__main__':
 
     print('here')
     viewer = Viewer(test)
-    # viewer.setCurrentImage()
-    viewer.readROIS()
-    # viewer.viewCurrentImage(getGImages().mask)
+    viewer.viewCurrentImage()
+    viewer.read_rois()
     viewer.open()
-    viewer.close()
-
