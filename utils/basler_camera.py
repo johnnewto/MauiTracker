@@ -3,7 +3,8 @@ __all__ = ['CameraThread','init_cameras','RunCameras']
 import pypylon.pylon as py
 
 import cv2
-
+import imutils
+from imutils.video import FPS
 from typing import List
 import threading, time
 import logging
@@ -89,6 +90,7 @@ class CameraThread:
         self.thread = threading.Thread(target=self.update, args=())
         self.thread.daemon = True
         self.process_image = None
+        self.frame_num = -1
 
     def start(self):
         self.stopped = False
@@ -124,6 +126,7 @@ class CameraThread:
             with self.cam.RetrieveResult(1000) as res:
                 if res and res.GrabSucceeded():
 
+                    self.frame_num += 1
                     self.img_nr = res.ImageNumber
                     self.cam_id = res.GetCameraContext()
                     self.timestamp = res.TimeStamp - initial_time
@@ -155,9 +158,25 @@ class CameraThread:
         """  Set the callback on frame capture """
         self.process_image = process_image
 
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        grabbed = False
+        if self.event.wait(timeout=0.5): # 0.1 second timeout
+            try:
+                self.fps.update()
+            except AttributeError:
+                self.fps = FPS().start()
+            self.event.clear()
+            grabbed = True
+
+        return (self.image, "basler"), self.frame_num, grabbed
+
+
 class RunCameras:
 
-    def __init__(self, cam_names, cam_serials, cam_offsetYs, pixelformat='8', dostart=False):
+    def __init__(self, cam_names, cam_serials,  pixelformat='8', dostart=False):
         # cam_serials = ['40083688', '40072295', '40072285']
         # cam_names = ['FrontCentre', 'FrontRight', 'FrontLeft']
         # cam_offsetYs = [280, 350, 350]
@@ -200,8 +219,8 @@ if __name__ == '__main__':
     cam_names = ['FrontCentre']
     # cam_serials = ['40083688']
     # cam_names = ['FrontCentre']
-    cam_offsetYs = [280]
-    cameras = RunCameras(cam_names, cam_serials, cam_offsetYs, pixelformat='12p')
+
+    cameras = RunCameras(cam_names, cam_serials,  pixelformat='12p')
 
     # test get_camera
     cam1 = cameras.get_camera('FrontCentre')
@@ -211,25 +230,31 @@ if __name__ == '__main__':
         thd.start()
         # cv2.namedWindow(f'{thd.name}', cv2.WINDOW_NORMAL)
 
-    while True:
+    # while True:
+    #     try:
+    for (image, filename), frameNum, grabbed in iter(cam1):
+        framebayer = image
+
+        # for i, cam in enumerate(cameras.cam_threads):
+        #     (grabbed, framebayer, id) = cam.read()
         try:
-            for i, cam in enumerate(cameras.cam_threads):
-                (grabbed, framebayer, id) = cam.read()
-                if grabbed:
-                    # frame = cv2.cvtColor(framebayer, cv2.COLOR_BAYER_BG2BGR)
-                    frame = cv2.cvtColor(framebayer, cv2.COLOR_BAYER_BG2GRAY)
-                    img_scaled = frame
-                    if frame.dtype == np.uint16:
-                        img_scaled = cv2.normalize(frame, dst=None, alpha=0, beta=65535, norm_type=cv2.NORM_MINMAX)
-                    # frame = resize(frame, width=1200)
-                    [r,c] = frame.shape[:2]
-                    sz = 500
-                    img_scaled = img_scaled[r//2-sz:r//2+sz, c//2-sz:c//2+sz]
-                    cv2.putText(img_scaled, f"{id}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                    cv2.imshow(f'{cam.name}', img_scaled)
-                    # cv2.imshow('horizon', np.zeros((100,100,3),dtype='uint8'))
-                else:
-                    pass
+            if grabbed:
+                # frame = cv2.cvtColor(framebayer, cv2.COLOR_BAYER_BG2BGR)
+                frame = cv2.cvtColor(framebayer,  cv2.COLOR_BAYER_BG2BGR)
+                img_scaled = imutils.resize(frame, width=1000)
+                if frame.dtype == np.uint16:
+                    img_scaled = cv2.normalize(img_scaled, dst=None, alpha=0, beta=65535, norm_type=cv2.NORM_MINMAX)
+                # frame = resize(frame, width=1200)
+                [r,c] = frame.shape[:2]
+                # sz = 500
+                # img_scaled = img_scaled[r//2-sz:r//2+sz, c//2-sz:c//2+sz]
+                cv2.putText(img_scaled, f"{frameNum}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                cv2.imshow(f'{cam1.name}', img_scaled)
+                print(frameNum)
+                # k = cv2.waitKey(1)
+                # cv2.imshow('horizon', np.zeros((100,100,3),dtype='uint8'))
+            else:
+                pass
 
         except KeyboardInterrupt:
             break

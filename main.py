@@ -15,8 +15,9 @@ from utils.horizon import *
 from utils.image_utils import *
 from utils.show_images import *
 import utils.image_loader as il
-import utils.sony_cam as sony
-from utils.qgcs_connect import ConnectQGC
+# import utils.sony_cam as sony
+# import utils.basler_camera as basler
+
 
 from utils import parameters as pms
 import logging
@@ -142,14 +143,18 @@ class Main:
 
         first_run = True
         while self.do_run:
+            k = -1
             for (image, filename), frameNum, grabbed  in iter(self.loader):
+
                 if grabbed or first_run:
                     first_run = False
                     print(f"frame {frameNum} : {filename}  {grabbed}" )
+                    if len(image.shape) == 2:
+                        image = cv2.cvtColor(image, cv2.COLOR_BAYER_BG2RGB)
                     setGImages(image)
                     getGImages().mask_sky()
 
-                    self.experiment(image)
+                    # self.experiment(image)
 
                     # scale between source image and display image
                     self.display_scale = self.display_width / image.shape[1]
@@ -186,7 +191,7 @@ class Main:
                     logger.error(e)
 
                 cv2_img_show(WindowName, disp_image)
-                k = cv2.waitKey(wait_timeout)
+                # k = cv2.waitKey(wait_timeout)
                 if k == ord('q') or k == 27:
                     self.do_run = False
                     break
@@ -197,7 +202,7 @@ class Main:
                 if k == ord('d'):
                     # change direction
                     wait_timeout = 0
-                    self.loader.direction_fwd = not self.loader.direction_fwd
+                    self.loader._direction_fwd = not self.loader._direction_fwd
                 if k == ord('r'):
                     # change direction
                     wait_timeout = 0
@@ -224,14 +229,17 @@ class Main:
                 if stop_frame is not None and stop_frame == frameNum:
                     logger.info(f" Early stop  at {frameNum}")
                     break
+                k = cv2.waitKey(wait_timeout)
 
             if  stop_frame is not None and stop_frame == frameNum:
                 logger.info(f" Early stop  at {frameNum}")
                 break
-            self.loader.direction_fwd = not self.loader.direction_fwd
+            # self.loader.direction_fwd = not self.loader.direction_fwd
             wait_timeout = 0
 
-
+            k = cv2.waitKey(wait_timeout)
+            if k == ord('q') or k == 27:
+                break
 
         if self.record:
             video.close()
@@ -257,7 +265,8 @@ class Main:
 
         angle_inc = sc  * 54.4 / image.shape[1]
         self.heading_angle -= angle_inc
-        self.qgc.high_latency2_send(heading=self.heading_angle)
+        if self.qgc is not None:
+            self.qgc.high_latency2_send(heading=self.heading_angle)
         putText(disp_image, f'{self.heading_angle :.3f}', row=disp_image.shape[0]-20, col=disp_image.shape[1]//2)
 
         # detected planes
@@ -275,7 +284,8 @@ class Main:
             heading = (bb[0] - image.shape[1] // 2) * 54.4 / image.shape[1]
             ang = self.heading_angle + heading
             print(f"plane detected at range {dist} {ang} ")
-            self.qgc.adsb_vehicle_send('bob', dist, ang, max_step=100)
+            if self.qgc is not None:
+                self.qgc.adsb_vehicle_send('bob', dist, ang, max_step=100)
 
         # if len(argplanes) > 0:
         #     idx = argplanes.flatten()
@@ -356,8 +366,11 @@ if __name__ == '__main__':
     NMS_THRESHOLD = 0.2
     DRAW_BOUNDING_BOXES = True
     USE_GPU = False
-    USE_CAMERA = False
 
+
+    USE_QGC = False
+    if USE_QGC:
+        from utils.qgcs_connect import ConnectQGC
     # method = 'CentroidKF_Tracker'
 
     # _tracker = CentroidTracker(max_lost=0, tracker_output_format='visdrone_challenge')
@@ -405,11 +418,16 @@ if __name__ == '__main__':
     # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
     # path = home+"/data/Karioitahi_09Feb2022/126MSDCF-28mm-f4.5"
     # path = home+"/data/Tairua_15Jan2022/109MSDCF"
+    path = home+"/data/orakei_Dec_02/101MSDCF"
 
+    # USE_CAMERA = 'CAM=SONY'
+    USE_CAMERA = 'CAM=BASLER'
+    # USE_CAMERA = 'FILES'
 
     # path = easygui.diropenbox( default=home+"/data/")
 
-    if USE_CAMERA:
+    if USE_CAMERA == 'CAM=SONY':
+        import utils.sony_cam as sony
         try:
             cam_serials = ['00001']
             cam_names = ['FrontCentre']
@@ -422,11 +440,28 @@ if __name__ == '__main__':
             logger.error(e)
             loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
 
-    else:
-        loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
+    elif USE_CAMERA == 'CAM=BASLER':
+        import utils.basler_camera as basler
+        try:
+            cam_serials = ['23479535']
+            cam_names = ['FrontCentre']
 
-    NZ_START_POS = (-36.9957915731748, 174.91686500754628)
-    qgc = ConnectQGC(NZ_START_POS)
+            cameras = basler.RunCameras(cam_names, cam_serials, dostart=True)
+            # test get_camera
+            loader = cameras.get_camera('FrontCentre')
+            assert loader.name == 'FrontCentre'
+
+        except Exception as e:
+            logger.error(e)
+            loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
+
+    else :
+        loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
+    if USE_QGC:
+        NZ_START_POS = (-36.9957915731748, 174.91686500754628)
+        qgc = ConnectQGC(NZ_START_POS)
+    else:
+        qgc = None
 
     main = Main(loader, _model, _tracker, display_width=1500, record=RECORD, path=path, qgc=qgc)
 
@@ -455,4 +490,4 @@ if __name__ == '__main__':
         save_csv(csv_file_path)
 
 
-    print(f'FPS = {loader.get_FPS()}')
+    # print(f'FPS = {loader.get_FPS()}')

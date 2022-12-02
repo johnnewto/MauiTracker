@@ -2,7 +2,7 @@ __all__ = [ 'get_project_root', 'near_mask', 'mask_horizon_1', 'mask_horizon_2',
 
 import cv2 as cv2
 import numpy as np
-
+from utils.show_images import cv2_img_show
 from utils import parameters as pms
 
 import time, sys
@@ -150,7 +150,7 @@ def find_sky_1(img, threshold=None, kernal_size=5):
 
 def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
     """ optimised for marine images"""
-    edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=100, apertureSize=3)
+    edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=255, apertureSize=3)
     kernel = np.ones((3, 5), 'uint8')
     edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
     # kernel = np.ones((3, 5), 'uint8')
@@ -208,7 +208,7 @@ def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
 
     labels[labels > 0] = 255
     labels = labels.astype('uint8')
-    # cv2_img_show('find_sky_2-labels pruned', labels)
+    cv2_img_show('find_sky_2-labels pruned', labels)
     return labels
 
 def o_find_sky(img, threshold=None, kernal_size=5):
@@ -293,7 +293,7 @@ def set_horizon(gray_img_s):
 
     # gray_img_s = getGImages().small_gray.copy()
 
-    edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=150, apertureSize=3)
+    edges = cv2.Canny(gray_img_s, threshold1=50, threshold2=250, apertureSize=5)
     # cv2_img_show('Canny1`', edges)
     kernel = np.ones((3, 5), np.uint8)
     edges = cv2.dilate(edges, kernel, iterations=1)  # < --- Added a dilate, check link I provided
