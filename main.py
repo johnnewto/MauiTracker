@@ -1,3 +1,42 @@
+"""
+This file contains the main code for the MauiTracker application.
+The code includes classes and functions for processing and analyzing video frames.
+
+Classes:
+- Main2: Represents the main class for processing video frames.
+- Main: Represents the main class for processing and analyzing video frames.
+
+Functions:
+- run: Runs the video processing and analysis.
+- experiment: Performs an experiment on the input image.
+
+Variables:
+- testpoint: A variable used for testing purposes.
+
+Modules:
+- math: Provides mathematical functions.
+- time: Provides functions for working with time.
+- cv2: Provides computer vision functions.
+- pathlib: Provides classes for working with file paths.
+- numpy: Provides functions for working with arrays.
+- socket: Provides functions for working with sockets.
+- csv: Provides functions for working with CSV files.
+- os: Provides functions for working with the operating system.
+- mot_sort_2: Contains the Sort class for object tracking.
+- cmo_peak: Contains the CMO_Peak class for object detection.
+- draw_tracks: Contains functions for drawing object tracks.
+- g_images: Contains functions for working with images... uses globals  :(
+- horizon: Contains functions for detecting the horizon in an image.
+- image_utils: Contains utility functions for image processing.
+- show_images: Contains functions for displaying images.
+- image_loader: Contains the ImageLoader class for loading images.
+- parameters: Contains various parameters for the application.
+- logging: Provides functions for logging.
+- sony_cam: Contains functions for working with Sony cameras.
+- basler_camera: Contains functions for working with Basler cameras.
+"""
+
+
 import math
 import time
 import cv2
@@ -129,126 +168,134 @@ class Main:
 
 
     def run(self, wait_timeout=10, heading_angle=0, stop_frame=None):
-        self.heading_angle = heading_angle
-        WindowName = "Main View"
-        cv2.namedWindow(WindowName, cv2.WINDOW_NORMAL)
+            """ 
+            Run the main tracking loop.
 
-        # These two lines will force your "Main View" window to be on top with focus.
-        cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+            Args:
+                wait_timeout (int, optional): The wait timeout in milliseconds. Defaults to 10.
+                heading_angle (int, optional): The heading angle. Defaults to 0.
+                stop_frame (int, optional): The frame number to stop at. Defaults to None.
+            """
+            self.heading_angle = heading_angle
+            WindowName = "Main View"
+            cv2.namedWindow(WindowName, cv2.WINDOW_NORMAL)
 
-        if self.record:
-            video = VideoWriter(self.path + 'out.mp4', 15.0)
-        self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
+            # These two lines will force your "Main View" window to be on top with focus.
+            cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
 
-        first_run = True
-        while self.do_run:
-            k = -1
-            for (image, filename), frameNum, grabbed  in iter(self.loader):
+            if self.record:
+                video = VideoWriter(self.path + 'out.mp4', 15.0)
+            self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
 
-                if grabbed or first_run:
-                    first_run = False
-                    print(f"frame {frameNum} : {filename}  {grabbed}" )
-                    if len(image.shape) == 2:
-                        image = cv2.cvtColor(image, cv2.COLOR_BAYER_BG2RGB)
-                    setGImages(image)
-                    getGImages().mask_sky()
+            first_run = True
+            while self.do_run:
+                k = -1
+                for (image, filename), frameNum, grabbed  in iter(self.loader):
 
-                    # self.experiment(image)
+                    if grabbed or first_run:
+                        first_run = False
+                        print(f"frame {frameNum} : {filename}  {grabbed}" )
+                        if len(image.shape) == 2:
+                            image = cv2.cvtColor(image, cv2.COLOR_BAYER_BG2RGB)
+                        setGImages(image)
+                        getGImages().mask_sky()
 
-                    # scale between source image and display image
-                    self.display_scale = self.display_width / image.shape[1]
+                        # self.experiment(image)
 
-                    # self.model.mask_sky()
+                        # scale between source image and display image
+                        self.display_scale = self.display_width / image.shape[1]
 
-                    bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
-                                                                                        filterClassID=[1, 2], frameNum=frameNum)
-                    if STORE_LABELS:
-                        for i, bbox in enumerate(bboxes):
-                            self.label_list.append([filename, i, bbox[0]+bbox[2]//2, bbox[1]+bbox[2]//2])
+                        # self.model.mask_sky()
 
-                    disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
-                    putText(disp_image, f'Frame# = {frameNum}, {filename}', row=170, fontScale=0.5)
+                        bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
+                                                                                            filterClassID=[1, 2], frameNum=frameNum)
+                        if STORE_LABELS:
+                            for i, bbox in enumerate(bboxes):
+                                self.label_list.append([filename, i, bbox[0]+bbox[2]//2, bbox[1]+bbox[2]//2])
 
-                    if self.record:
-                        # img = cv2.cvtColor(disp_image, code=cv2.COLOR_RGB2BGR)
-                        img = resize(disp_image, width=1400)  # not sure why this is needed to stop black screen video
-                        # img = (np.random.rand(200, 200, 3) * 255).astype('uint8')
-                        for i in range(2):
-                            video.add(img)
+                        disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
+                        putText(disp_image, f'Frame# = {frameNum}, {filename}', row=170, fontScale=0.5)
 
-                    self.sock.sendto(b"Take Screen Shot", ("127.0.0.1", 5005))
+                        if self.record:
+                            # img = cv2.cvtColor(disp_image, code=cv2.COLOR_RGB2BGR)
+                            img = resize(disp_image, width=1400)  # not sure why this is needed to stop black screen video
+                            # img = (np.random.rand(200, 200, 3) * 255).astype('uint8')
+                            for i in range(2):
+                                video.add(img)
 
-                try:
-                    cv2_img_show('fullres_tiles', vstack(
-                        [np.hstack(self.model.fullres_img_tile_lst), np.hstack(self.model.fullres_cmo_tile_lst)]),
-                                 height=200)
+                        self.sock.sendto(b"Take Screen Shot", ("127.0.0.1", 5005))
 
-                    cv2_img_show('lowres_tiles', vstack(
-                        [np.hstack(self.model.lowres_img_tile_lst), np.hstack(self.model.lowres_cmo_tile_lst)]),
-                                 height=200)
-                except Exception as e:
-                    logger.error(e)
+                    try:
+                        cv2_img_show('fullres_tiles', vstack(
+                            [np.hstack(self.model.fullres_img_tile_lst), np.hstack(self.model.fullres_cmo_tile_lst)]),
+                                     height=200)
 
-                cv2_img_show(WindowName, disp_image)
-                # k = cv2.waitKey(wait_timeout)
-                if k == ord('q') or k == 27:
-                    self.do_run = False
-                    break
-                if k == ord(' '):
-                    wait_timeout = 0
-                if k == ord('g'):
-                    wait_timeout = 1
-                if k == ord('d'):
-                    # change direction
-                    wait_timeout = 0
-                    self.loader._direction_fwd = not self.loader._direction_fwd
-                if k == ord('r'):
-                    # change direction
-                    wait_timeout = 0
-                    self.loader.restep = True
-                # if k == ord('t'):
-                #     r = int(self.images.small_rgb.shape[0] * 0.9)
-                #     c =  self.model.small_rgb.shape[1] // 2
-                #     bboxes.append([3000, 2000, 40, 40])
-                #     confidences.append(1)
-                #     class_ids.append(2)
-                #     self.tracker.update(bboxes, confidences, class_ids, (0, 0))
-                #     # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
-                #     # trackers = mot_tracker.update(dets)
-                #     self.testpoint = (r, c)
-                #     self.loader.direction_fwd = not self.loader.direction_fwd
+                        cv2_img_show('lowres_tiles', vstack(
+                            [np.hstack(self.model.lowres_img_tile_lst), np.hstack(self.model.lowres_cmo_tile_lst)]),
+                                     height=200)
+                    except Exception as e:
+                        logger.error(e)
 
-                if k == ord('f'):
-                    import tkinter.filedialog
+                    cv2_img_show(WindowName, disp_image)
+                    # k = cv2.waitKey(wait_timeout)
+                    if k == ord('q') or k == 27:
+                        self.do_run = False
+                        break
+                    if k == ord(' '):
+                        wait_timeout = 0
+                    if k == ord('g'):
+                        wait_timeout = 1
+                    if k == ord('d'):
+                        # change direction
+                        wait_timeout = 0
+                        self.loader._direction_fwd = not self.loader._direction_fwd
+                    if k == ord('r'):
+                        # change direction
+                        wait_timeout = 0
+                        self.loader.restep = True
+                    # if k == ord('t'):
+                    #     r = int(self.images.small_rgb.shape[0] * 0.9)
+                    #     c =  self.model.small_rgb.shape[1] // 2
+                    #     bboxes.append([3000, 2000, 40, 40])
+                    #     confidences.append(1)
+                    #     class_ids.append(2)
+                    #     self.tracker.update(bboxes, confidences, class_ids, (0, 0))
+                    #     # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
+                    #     # trackers = mot_tracker.update(dets)
+                    #     self.testpoint = (r, c)
+                    #     self.loader.direction_fwd = not self.loader.direction_fwd
 
-                    path = tkinter.filedialog.askdirectory()
-                    self.loader.open_path(path)
+                    if k == ord('f'):
+                        import tkinter.filedialog
 
-                    # create_filechooser(default_path=str(Path.home()) + "/data/Karioitahi_09Feb2022/")
-                if stop_frame is not None and stop_frame == frameNum:
+                        path = tkinter.filedialog.askdirectory()
+                        self.loader.open_path(path)
+
+                        # create_filechooser(default_path=str(Path.home()) + "/data/Karioitahi_09Feb2022/")
+                    if stop_frame is not None and stop_frame == frameNum:
+                        logger.info(f" Early stop  at {frameNum}")
+                        break
+                    k = cv2.waitKey(wait_timeout)
+
+                if  stop_frame is not None and stop_frame == frameNum:
                     logger.info(f" Early stop  at {frameNum}")
                     break
+                # self.loader.direction_fwd = not self.loader.direction_fwd
+                wait_timeout = 0
+
                 k = cv2.waitKey(wait_timeout)
+                if k == ord('q') or k == 27:
+                    break
 
-            if  stop_frame is not None and stop_frame == frameNum:
-                logger.info(f" Early stop  at {frameNum}")
-                break
-            # self.loader.direction_fwd = not self.loader.direction_fwd
-            wait_timeout = 0
+            if self.record:
+                video.close()
+            self.sock.sendto(b"End Record", ("127.0.0.1", 5005))
 
-            k = cv2.waitKey(wait_timeout)
-            if k == ord('q') or k == 27:
-                break
+            cv2.destroyAllWindows()
+            self.loader.close()
 
-        if self.record:
-            video.close()
-        self.sock.sendto(b"End Record", ("127.0.0.1", 5005))
-
-        cv2.destroyAllWindows()
-        self.loader.close()
-
-        time.sleep(0.5)
+            time.sleep(0.5)
 
 
     def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
@@ -355,7 +402,9 @@ class Main:
 
 
 if __name__ == '__main__':
+    """
 
+    """
     STORE_TILES = False
     STORE_LABELS = False
 
