@@ -1,11 +1,9 @@
 """
-CMO_Peak_JNv1 Object Detector Module.
+This module contains the implementation of the CMO_Peak class, which is an object detector module using intensity peaks.
 """
 
 import numpy as np
-
-import cv2  as cv2
-
+import cv2 as cv2
 from utils.detector import Detector
 from motrackers.utils.misc import xyxy2xywh
 from motrackers.utils.misc import load_labelsjson
@@ -13,15 +11,11 @@ from skimage.feature.peak import peak_local_max
 from utils.image_utils import resize, BH_op, get_tile, min_pool, crop_idx
 from utils.g_images import *
 from utils.horizon import find_sky_2
-import  utils.pytorch_utils as ptu
+import utils.pytorch_utils as ptu
 import torch
-
 from utils import parameters as pms
 import logging
 
-
-# logger = logging.getLogger()
-# logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',
                     level=pms.LOGGING_LEVEL)
@@ -34,24 +28,38 @@ class CMO_Peak(Detector):
     """
 
     def __init__(self, confidence_threshold=0.5,
-                 labels_path = None,
+                 labels_path=None,
                  expected_peak_max=60,
                  peak_min_distance=10,
-                 num_peaks = 10,
+                 num_peaks=10,
                  maxpool=12,
                  CMO_kernalsize=3,
-                 track_boxsize = (160,80),
+                 track_boxsize=(160, 80),
                  bboxsize=40,
                  draw_bboxes=True,
                  device=None):
+        """
+        Initializes the CMO_Peak object detector module.
 
+        Args:
+            confidence_threshold (float): Confidence threshold for object detection.
+            labels_path (str): Path to the labels JSON file.
+            expected_peak_max (int): Maximum expected peak value.
+            peak_min_distance (int): Minimum distance between peaks.
+            num_peaks (int): Number of peaks to detect.
+            maxpool (int): Maximum pooling size.
+            CMO_kernalsize (int): Kernel size for CMO operation.
+            track_boxsize (tuple): Size of the tracking box.
+            bboxsize (int): Size of the bounding box.
+            draw_bboxes (bool): Whether to draw bounding boxes on the image.
+            device (str): Device to use for computation (e.g., "cuda:0" or "cpu").
+        """
         if labels_path is not None:
             object_names = load_labelsjson(labels_path)
         else:
-            object_names = {1:'plane', 2:'cloud'}
+            object_names = {1: 'plane', 2: 'cloud'}
 
-        # self.scale_factor = 1/255.0
-        self.expected_peak_max=expected_peak_max
+        self.expected_peak_max = expected_peak_max
         self.peak_min_distance = peak_min_distance
         self.num_peaks = num_peaks
         self.maxpool = maxpool
@@ -62,10 +70,9 @@ class CMO_Peak(Detector):
         y = np.arange(-10, 10 + 1, 10)
         self._xv, self._yv = np.meshgrid(x, y)
         self.device = device
-        if self.device == None:
+        if self.device is None:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        # self._res18_model = ptu.loadModel(device=self.device)
         try:
             self._res18_model = ptu.loadCustomModel(device=self.device)
             self.predictor = ptu.Predict(self._res18_model).to(self.device)
@@ -75,13 +82,23 @@ class CMO_Peak(Detector):
         super().__init__(object_names, confidence_threshold, draw_bboxes)
 
     def set_max_pool(self, maxpool=12):
+        """
+        Sets the maximum pooling size.
+
+        Args:
+            maxpool (int): Maximum pooling size.
+        """
         self.maxpool = maxpool
         getGImages().maxpool = self.maxpool
         print(f'Setting maxpool = {self.maxpool}')
 
     def align(self):
-        """ Align this image to the last in order to keep tracking centers accurate"""
+        """
+        Aligns the image to the last in order to keep tracking centers accurate.
 
+        Returns:
+            tuple: Tuple containing the aligned coordinates (row, column).
+        """
         try:
             ((sc, sr), _error) = cv2.phaseCorrelate(getGImages().last_minpool_f, getGImages().minpool_f)
             getGImages().last_minpool_f = getGImages().minpool_f
@@ -89,42 +106,51 @@ class CMO_Peak(Detector):
             getGImages().last_minpool_f = getGImages().minpool_f
             sc, sr = 0, 0
 
-        return (round(sr*self.maxpool), round(sc*self.maxpool))
+        return (round(sr * self.maxpool), round(sc * self.maxpool))
 
     def get_bb(self, img, pos, threshold=0.5):
-        """ get the bounding box from the thresholded contour (usually on a CMO image"""
-        (r1,c1) = pos
+        """
+        Gets the bounding box from the thresholded contour (usually on a CMO image).
+
+        Args:
+            img (numpy.ndarray): Input image.
+            pos (tuple): Position of the peak.
+            threshold (float): Threshold value.
+
+        Returns:
+            list: List containing the bounding box coordinates [x, y, width, height].
+        """
+        (r1, c1) = pos
         thresh = int(img[r1, c1] * threshold)
         mask = ((img > thresh) * 255).astype('uint8')
         num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-        # get the second largest region
         if num_regions > 1:
             idx = labels[r1, c1]
-            if idx != 0:  # 0 is the background
+            if idx != 0:
                 bb = stats[idx]
-                # bbwh = [(c0 - c1 + bb[0]) * self.maxpool, (r0 - r1 + bb[1]) * self.maxpool, bb[2] * self.maxpool,
-                #         bb[3] * self.maxpool]
                 bbwh = [bb[0], bb[1], bb[2], bb[3]]
             else:
                 bbwh = None
         else:
-            bbwh = None  # maybe due to cropping problem
-        if bbwh == None:
-            bbwh = [mask.shape[1]//2, mask.shape[0]//2, 0, 0]
+            bbwh = None
+        if bbwh is None:
+            bbwh = [mask.shape[1] // 2, mask.shape[0] // 2, 0, 0]
         return bbwh
 
     def find_peaks(self):
+        """
+        Finds the intensity peaks in the image.
 
-
-
-        threshold_abs = self.expected_peak_max*self.confidence_threshold
+        Returns:
+            tuple: Tuple containing the peak positions and bounding boxes.
+        """
+        threshold_abs = self.expected_peak_max * self.confidence_threshold
         _pks = peak_local_max(getGImages().cmo,
                               min_distance=self.peak_min_distance,
                               threshold_abs=threshold_abs,
                               num_peaks=self.num_peaks)
 
         self.fullres_cmo_tile_lst = []
-
         self.fullres_img_tile_lst = []
         self.lowres_cmo_tile_lst = []
         self.lowres_img_tile_lst = []
@@ -135,68 +161,45 @@ class CMO_Peak(Detector):
         # get low res and full res peaks
         # gather all the tiles centered on the peak positions
         for i, (r, c) in enumerate(_pks):
-
-            bs0 = round(self.bboxsize//2)
-
+            bs0 = round(self.bboxsize // 2)
             lowres_img = get_tile(getGImages().small_gray, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
             lowres_cmo = get_tile(getGImages().cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
-
             self.lowres_img_tile_lst.append(lowres_img)
             self.lowres_cmo_tile_lst.append(lowres_cmo)
-
             bbwh = self.get_bb(lowres_cmo, (bs0, bs0))
-
             if bbwh is not None:
                 bbwh = [(c - bs0 + bbwh[0]) * self.maxpool, (r - bs0 + bbwh[1]) * self.maxpool, bbwh[2] * self.maxpool,
                         bbwh[3] * self.maxpool]
                 bbwhs.append(bbwh)
             else:
                 logger.error("bbwh could not be created")
-
             bs = self.bboxsize
-            # find more accurate peak position based on full size image
             r, c = r * self.maxpool, c * self.maxpool
-
             img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
-            fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
-            # l_cmo = self.cmo[r-bs:r+bs, c-bs:c+bs]
+            fullres_cmo = BH_op(img, (self.CMO_kernalsize * 2 + 1, self.CMO_kernalsize * 2 + 1))
             (_r, _c) = np.unravel_index(fullres_cmo.argmax(), fullres_cmo.shape)
-            r, c = r-bs+_r, c-bs+_c
+            r, c = r - bs + _r, c - bs + _c
             pks.append((r, c))
             img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
-            # fullres_cmo = BH_op(img, (self.CMO_kernalsize*2+1, self.CMO_kernalsize*2+1))
-            # img = fill_crop(image, (r-bs*2, c-bs*2), (bs*4, bs*4))
             fullres_img = img
             self.fullres_cmo_tile_lst.append(fullres_cmo)
             self.fullres_img_tile_lst.append(fullres_img)
-
-
             pk_val = fullres_cmo[bs, bs]
             self.cmo_pk_vals.append(pk_val)
             if pk_val < 1:
                 logger.warning(f'Detected Peak Value ({i} : {pk_val}) is very low? Frame {self.frameNum}')
-
             bbwh = self.get_bb(fullres_cmo, (bs, bs), threshold=0.25)
-
-            # cv2.rectangle(fullres_cmo, (bbwh[0], bbwh[1]), (bbwh[0]+bbwh[2], bbwh[1]+bbwh[3]), (255, 255, 0), 1)
-            # cv2.rectangle(fullres_img, (bbwh[0], bbwh[1]), (bbwh[0]+bbwh[2], bbwh[1]+bbwh[3]), (255, 255, 0), 1)
-            # draw a line
-            # _row = fullres_img.shape[0]//2 -5 # bbwh[1]+bbwh[3]-1
             _row = 20
             _col = bbwh[0]
-
             wid = bbwh[2]
-            fullres_cmo[_row, _col:_col+wid] = (64)
-            fullres_img[_row, _col:_col+wid] = (255, 255, 0)
-
+            fullres_cmo[_row, _col:_col + wid] = (64)
+            fullres_img[_row, _col:_col + wid] = (255, 255, 0)
 
         self.pks = pks
         self.bbwhs = bbwhs
-
-        # gradients are used for filtering out clouds
         self.pk_gradients = []
-        for i, (r,c) in enumerate(pks):
-            grad = getGImages().full_gray[r+self._yv, c+self._xv].astype(np.int32)
+        for i, (r, c) in enumerate(pks):
+            grad = getGImages().full_gray[r + self._yv, c + self._xv].astype(np.int32)
             grad = grad - grad[1, 1]
             grad[1, 1] = grad.max()
             self.pk_gradients.append(grad)
@@ -204,26 +207,37 @@ class CMO_Peak(Detector):
         return self.pks, self.bbwhs
 
     def test_foward(self):
+        """
+        Test forward method.
+        """
         pass
 
     def classify(self, detections, image, pk_vals, pk_gradients, scale, filterClassID):
-        # if filterClassID is None:
-        #     filterClassID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        """
+        Classifies the detections based on peak values and gradients.
+
+        Args:
+            detections (list): List of detections.
+            image (numpy.ndarray): Input image.
+            pk_vals (list): List of peak values.
+            pk_gradients (list): List of peak gradients.
+            scale (float): Scaling factor.
+            filterClassID (list): List of class IDs to filter.
+
+        Returns:
+            tuple: Tuple containing the bounding boxes, confidences, class IDs, and full resolution image tiles.
+        """
         fullres_img_tile_lst, bboxes, confidences, class_ids = [], [], [], []
         for i, detection in enumerate(detections):
-            # determine if cloud or not
             confidence = pk_vals[i] / self.expected_peak_max
-
-            if pk_gradients[i].min() < 20 and pk_gradients[i].min() < pk_gradients[i].max() // 2:  # todo fix magic  number for cloud threshold
+            if pk_gradients[i].min() < 20 and pk_gradients[i].min() < pk_gradients[i].max() // 2:
                 class_id = 2  # cloud
             else:
-                class_id = 1  # plane pk_gradientsor bird
-
+                class_id = 1  # plane or bird
             if confidence > self.confidence_threshold and class_id in filterClassID:
-                bs = self.bboxsize//2
-                # bbox = detection[3:7] * np.array([self.width, self.height, self.width, self.height])
+                bs = self.bboxsize // 2
                 row, col = int(detection[0] * scale), int(detection[1] * scale)
-                bbox = (col-bs, row-bs, col+bs, row+bs)
+                bbox = (col - bs, row - bs, col + bs, row + bs)
                 bboxes.append(bbox)
                 confidences.append(float(confidence))
                 class_ids.append(int(class_id))
@@ -231,41 +245,7 @@ class CMO_Peak(Detector):
 
         return bboxes, confidences, class_ids, fullres_img_tile_lst
 
-    def old_classifyNN(self, detections, image):
-
-        nn_tile_list, bboxes, confidences, class_ids = [], [], [], []
-        for i, detection in enumerate(detections):
-            # determine if cloud or not
-            bs = self.bboxsize//2
-            # bbox = detection[3:7] * np.array([self.width, self.height, self.width, self.height])
-            # row, col = int(detection[0] * scale), int(detection[1] * scale)
-            row, col = detection
-            row, col = crop_idx(row, col, bs, image.shape)
-            bbox = (col-bs, row-bs, col+bs, row+bs)
-            bboxes.append(bbox)
-            # (col, row, h, w) = [round(v / scale) for v in (col, row, h, w)]
-            # bbox = [round(v / scale) for v in bbox]
-            # row = image.shape[0] - h if row >= image.shape[0] - h else row
-            # col = image.shape[1] - w if col >= image.shape[1] - w else col
-            img = image[row-bs:row+bs, col-bs:col+bs]
-            assert img.shape[:2] == (self.bboxsize, self.bboxsize)
-            if img.ndim == 2:
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            nn_tile_list.append(img)  # tuple with (numpy, labelID, defect pos. frameID)
-
-        batch = ptu.images2batch(nn_tile_list).to(self.device)
-        y_pred = self.predictor(batch)
-        cat, conf = self.predictor.conf(y_pred)
-        class_ids = cat.detach().cpu().numpy().tolist()
-        confidences = conf.detach().cpu().numpy().tolist()
-
-        return bboxes, confidences, class_ids, nn_tile_list
-
-        # y_pred = self.predictor(batch)
-        # cat, conf = self.predictor.conf(y_pred)
-        # print(cat)
-        # print(conf)
-
+ 
     def classifyNN(self, tile_list):
         """ classify the full res colour tiles """
         batch = ptu.images2batch(tile_list).to(self.device)
