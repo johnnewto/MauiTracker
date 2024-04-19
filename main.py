@@ -369,7 +369,7 @@ if __name__ == '__main__':
 
 
     USE_QGC = False
-    if USE_QGC:
+    if USE_QGC:   # for position on map  ( special compiled version) should use mavlink message instead)
         from utils.qgcs_connect import ConnectQGC
     # method = 'CentroidKF_Tracker'
 
@@ -418,11 +418,12 @@ if __name__ == '__main__':
     # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
     # path = home+"/data/Karioitahi_09Feb2022/126MSDCF-28mm-f4.5"
     # path = home+"/data/Tairua_15Jan2022/109MSDCF"
-    path = home+"/data/orakei_Dec_02/101MSDCF"
+    # path = home+"/data/orakei_Dec_02/101MSDCF"
+    # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
 
     # USE_CAMERA = 'CAM=SONY'
-    USE_CAMERA = 'CAM=BASLER'
-    # USE_CAMERA = 'FILES'
+    # USE_CAMERA = 'CAM=BASLER'
+    USE_CAMERA = 'FILES'
 
     # path = easygui.diropenbox( default=home+"/data/")
 

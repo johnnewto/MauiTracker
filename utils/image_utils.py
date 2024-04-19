@@ -267,7 +267,7 @@ def old_make_tile_list(image: np.ndarray, tracks, tile_size=80,  display_scale=1
     tile_list = []
     numTracks = len(tracks)
     if which is None:
-        which = np.ones(numTracks, dtype=np.bool)
+        which = np.ones(numTracks, dtype=bool)
     try:
         # try pyimagesearch tracker
         for (objectID, trk) in tracks.items():
