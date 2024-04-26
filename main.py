@@ -436,7 +436,7 @@ if __name__ == '__main__':
 
     # home = str(Path.home())
     _model = CMO_Peak(confidence_threshold=0.1,
-                        labels_path='/home/jn/data/imagenet_class_index.json',
+                        labels_path='data/imagenet_class_index.json',
                         # labels_path='/media/jn/0c013c4e-2b1c-491e-8fd8-459de5a36fd8/home/jn/data/imagenet_class_index.json',
                         expected_peak_max=60,
                         peak_min_distance=5,
@@ -455,20 +455,8 @@ if __name__ == '__main__':
     crop = [_r, _r + rows, _c, _c + cols]
     # crop = None
     home = str(Path.home())
-    # path = 'Z:/Day2/seq1/'
-    path = home+"/data/large_plane/images"
-    # path = home+"/data/ardmore_30Nov21"
-    path = home+"/data/Karioitahi_15Jan2022/123MSDCF-35mm"
-    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm(subset)"
-    # path = home+"/data/Karioitahi_15Jan2022/117MSDCF-28mm"
-    path = home+"/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
-    # path = home+"/data/Karioitahi_09Feb2022/133MSDCF-28mm-f4"
-    # path = home+"/data/Karioitahi_09Feb2022/135MSDCF-60mm-f5.6"
-    # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
-    # path = home+"/data/Karioitahi_09Feb2022/126MSDCF-28mm-f4.5"
-    # path = home+"/data/Tairua_15Jan2022/109MSDCF"
-    # path = home+"/data/orakei_Dec_02/101MSDCF"
-    # path = home+"/data/Karioitahi_09Feb2022/131MSDCF-28mm-f8"
+    path = "data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
+
 
     # USE_CAMERA = 'CAM=SONY'
     # USE_CAMERA = 'CAM=BASLER'

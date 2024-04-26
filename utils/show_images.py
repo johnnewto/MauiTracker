@@ -101,7 +101,7 @@ def cv2_img_show(name, img, width=None, height=None, flags=None, mode='RGB'):
     img = resize(img, width=width, height=height)
     cv2.imshow(name, img)
 
-def vstack(lst:list[np.ndarray]):
+def vstack(lst:list):
     """ vertically stack images, correct for shape and color """
     try:
         ndim = 0

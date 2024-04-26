@@ -89,7 +89,7 @@ def loadModel(device='cpu'):
     return model_new
 
 # def loadCustomModel(path='/home/jn/data/large_plane/model.pth', num_classes=4, device='cpu'):
-def loadCustomModel(path='/media/jn/0c013c4e-2b1c-491e-8fd8-459de5a36fd8/home/jn/data/large_plane/model.pth', num_classes=4, device='cpu'):
+def loadCustomModel(path='data/model.pth', num_classes=4, device='cpu'):
     "/home/jn/data/large_plane/model.pth"
     """ load a custom pretrained resnet18 trained model"""
     model_new = torchvision.models.resnet18(pretrained=False).to(device)
@@ -117,7 +117,7 @@ def imagenet_classification(predicted_idx):
     try:
         return imagenet_classification.imagenet_class_index[predicted_idx]
     except AttributeError:
-        imagenet_classification.imagenet_class_index = json.load(open('/home/jn/data/imagenet_class_index.json'))
+        imagenet_classification.imagenet_class_index = json.load(open('data/imagenet_class_index.json'))
         return imagenet_classification.imagenet_class_index[predicted_idx]
 
 from torchvision import  transforms
@@ -141,7 +141,7 @@ class Predict(nn.Module):
             # torchvision.transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         )
-        self.imagenet_class_index = json.load(open('/home/jn/data/imagenet_class_index.json'))
+        self.imagenet_class_index = json.load(open('data/imagenet_class_index.json'))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
