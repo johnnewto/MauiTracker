@@ -293,7 +293,7 @@ def draw_tracks(image, tracks, dotsize=3, display_scale=1, colors=None):
             # color = (int(color[0]), int(color[1]), int(color[2]))
             # convert_x_to_bbox()/
             rect = (d[:4]*display_scale).astype('int32')
-            image = cv.rectangle(image, (rect[0], rect[1]), (rect[2], rect[3]), color, 2)
+            image = cv.rectangle(image, (rect[0], rect[1]), (rect[2], rect[3]), color, 3)
 
 
     return image

@@ -113,6 +113,7 @@ def norm_uint8(img):
 def BH_op(img, kernelSize):
     """bottom-hat transformation Filtering Approach
     A Study of Morphological Pre-Processing Approaches for Track-Before-Detect Dim Target Detection
+    https://eprints.qut.edu.au/214476/1/16823.pdf
     """
     if img.ndim == 2:
         obs = img
@@ -127,6 +128,7 @@ def BH_op(img, kernelSize):
 def TH_op(img, kernelSize):
     """top-hat transformation Filtering Approach
     A Study of Morphological Pre-Processing Approaches for Track-Before-Detect Dim Target Detection
+    https://eprints.qut.edu.au/214476/1/16823.pdf
     """
     if img.ndim == 2:
         obs = img
@@ -141,6 +143,7 @@ def TH_op(img, kernelSize):
 def CMO_op(img, kernelSize):
     """Close-Minus-Open Filtering Approach
     A Study of Morphological Pre-Processing Approaches for Track-Before-Detect Dim Target Detection
+    https://eprints.qut.edu.au/214476/1/16823.pdf
     """
     if img.ndim == 2:
         obs = img

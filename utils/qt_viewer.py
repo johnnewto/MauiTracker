@@ -701,10 +701,10 @@ if __name__ == '__main__':
     # images = Images()
     # image = cv2.cvtColor(cv2.imread())
     # filename = '/home/jn/data/Tairua_15Jan2022/109MSDCF/DSC03288.JPG'
-    filename = '/home/jn/data/test2/DSC01013.JPG'
+    filename = './../../data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/DSC01013.JPG'
+    filename = '/home/john/PycharmProjects/MauiTracker/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4/DSC01013.JPG'
     # filename = '/home/jn/data/test2/vlcsnap1.png'
     image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_RGB2BGR)
-
     setGImages(image, filename)
     getGImages().mask_sky()
     gray_img_s = getGImages().small_gray.copy()

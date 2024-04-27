@@ -193,7 +193,16 @@ def putText(img, text, row=30, col=10, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontSc
     '''
     Put text on the image
     '''
+    import math
+    FONT_SCALE = 6e-4  # Adjust for larger font size in all images
+    THICKNESS_SCALE = 1e-3  # Adjust for larger thickness in all images
+
     if type(img) is np.ndarray:
+        height, width, _ = img.shape
+        fontScale = min(width, height) * FONT_SCALE
+        thickness = math.ceil(min(width, height) * THICKNESS_SCALE)
+        row = height - row  #  margin from the bottom
+        # col = height//20  #  margin from the left
         cv2.putText(img, text, (col, row), fontFace, fontScale, color, thickness, cv2.LINE_AA)
     else:
         img.metadata = {"text": text, "row": row, "col": col, "fontFace": fontFace, "fontScale": fontScale,

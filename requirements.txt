@@ -7,9 +7,6 @@ moviepy
 numpy
 opencv-python==4.7.0.72
 Pillow
-PyQt5
-PyQt5_sip
-pyqtgraph
 PyTurboJPEG==1.7.3
 scipy
 scikit-image

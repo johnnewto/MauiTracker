@@ -166,13 +166,13 @@ class CMO_Peak(Detector):
             lowres_cmo = get_tile(getGImages().cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
             self.lowres_img_tile_lst.append(lowres_img)
             self.lowres_cmo_tile_lst.append(lowres_cmo)
-            bbwh = self.get_bb(lowres_cmo, (bs0, bs0))
-            if bbwh is not None:
-                bbwh = [(c - bs0 + bbwh[0]) * self.maxpool, (r - bs0 + bbwh[1]) * self.maxpool, bbwh[2] * self.maxpool,
-                        bbwh[3] * self.maxpool]
-                bbwhs.append(bbwh)
-            else:
-                logger.error("bbwh could not be created")
+            # bbwh = self.get_bb(lowres_cmo, (bs0, bs0))
+            # if bbwh is not None:
+            #     bbwh = [(c - bs0 + bbwh[0]) * self.maxpool, (r - bs0 + bbwh[1]) * self.maxpool, bbwh[2] * self.maxpool,
+            #             bbwh[3] * self.maxpool]
+            #     bbwhs.append(bbwh)
+            # else:
+            #     logger.error("bbwh could not be created")
             bs = self.bboxsize
             r, c = r * self.maxpool, c * self.maxpool
             img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
@@ -180,20 +180,25 @@ class CMO_Peak(Detector):
             (_r, _c) = np.unravel_index(fullres_cmo.argmax(), fullres_cmo.shape)
             r, c = r - bs + _r, c - bs + _c
             pks.append((r, c))
+
+            bbwh = [c - bs , r - bs, bs * 2, bs * 2]
+            bbwhs.append(bbwh)
+
             img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
             fullres_img = img
             self.fullres_cmo_tile_lst.append(fullres_cmo)
             self.fullres_img_tile_lst.append(fullres_img)
             pk_val = fullres_cmo[bs, bs]
             self.cmo_pk_vals.append(pk_val)
-            if pk_val < 1:
-                logger.warning(f'Detected Peak Value ({i} : {pk_val}) is very low? Frame {self.frameNum}')
-            bbwh = self.get_bb(fullres_cmo, (bs, bs), threshold=0.25)
-            _row = 20
-            _col = bbwh[0]
-            wid = bbwh[2]
-            fullres_cmo[_row, _col:_col + wid] = (64)
-            fullres_img[_row, _col:_col + wid] = (255, 255, 0)
+            # if pk_val < 1:
+            #     logger.warning(f'Detected Peak Value ({i} : {pk_val}) is very low? Frame {self.frameNum}')
+            # bbwh = self.get_bb(fullres_cmo, (bs, bs), threshold=0.25)
+            # # draw width indicator
+            # _row = 20
+            # _col = bbwh[0]
+            # wid = bbwh[2]
+            #
+            # fullres_img[_row, _col:_col + wid] = (255, 255, 0)
 
         self.pks = pks
         self.bbwhs = bbwhs
@@ -203,7 +208,7 @@ class CMO_Peak(Detector):
             grad = grad - grad[1, 1]
             grad[1, 1] = grad.max()
             self.pk_gradients.append(grad)
-
+        logger.info(f'Found {len(pks)} peaks')
         return self.pks, self.bbwhs
 
     def test_foward(self):
@@ -295,14 +300,18 @@ class CMO_Peak(Detector):
             bbox = (col-bs, row-bs, col+bs, row+bs)
             bboxes.append(bbox)
 
-        try:
-            confidences, class_ids = self.classifyNN(self.fullres_img_tile_lst)
-        except Exception as e:
-            # self.classify(detections, image, pk_vals, pk_gradients, scale, filterClassID)
-            logger.error(e)
-            # confidences = [1] * len(self.fullres_img_tile_lst)
-            confidences = [cmo_pk_val / 255.0 for cmo_pk_val in self.cmo_pk_vals]
-            class_ids = [0] * len(self.fullres_img_tile_lst)
+        # try:  27/4/24  JN took this out as NN not trained
+
+        #     confidences, class_ids = self.classifyNN(self.fullres_img_tile_lst)
+        # except Exception as e:
+        #     # self.classify(detections, image, pk_vals, pk_gradients, scale, filterClassID)
+        #     logger.error(e)
+        #     # confidences = [1] * len(self.fullres_img_tile_lst)
+        #     confidences = [cmo_pk_val / 255.0 for cmo_pk_val in self.cmo_pk_vals]
+        #     class_ids = [0] * len(self.fullres_img_tile_lst)
+
+        confidences = [cmo_pk_val / 255.0 for cmo_pk_val in self.cmo_pk_vals]
+        class_ids = [0] * len(self.fullres_img_tile_lst)
 
         # for bbwh, tile in zip(self.bbwhs, self.fullres_img_tile_lst):
         #     if bbwh is not None:
@@ -312,6 +321,16 @@ class CMO_Peak(Detector):
         #         end = (c+w2, r+h2)
         #         cv2.rectangle(tile, pos, end, (255, 255, 0), 1)
         bboxes = xyxy2xywh(np.array(bboxes)).tolist()
+
+        # Zip the lists together
+        zipped_lists = list(zip(bboxes, bbwhs, confidences, class_ids))
+
+        # Sort the zipped lists by confidences (the third element in each tuple)
+        sorted_lists = sorted(zipped_lists, key=lambda x: x[2], reverse=True)
+
+        # Unzip the sorted list back into individual lists
+        bboxes, bbwhs, confidences, class_ids = zip(*sorted_lists)
+
         return bboxes, bbwhs, confidences, class_ids, (sr, sc)
 
         # if len(confidences):
@@ -323,7 +342,7 @@ class CMO_Peak(Detector):
         #     return [], [], [], [], (sr, sc)
             # return np.array([]), np.array([]), np.array([]), np.array([]), (sr, sc)
 
-    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True):
+    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=2):
         """
         Draw the bounding boxes about detected objects in the image.
 
@@ -341,21 +360,31 @@ class CMO_Peak(Detector):
             confidences = [1.0 for bb in bboxes]
         if class_ids is None:
             class_ids = [i for i, bb in enumerate(bboxes)]
-
+        count = 0
         for bb, conf, cid in zip(bboxes, confidences, class_ids):
-            clr = [int(c) for c in self.bbox_colors[cid]]
+            # clr = [int(c) for c in self.bbox_colors[cid]]
+            if count < 5:
+                clr = (255, 0, 0)
+            elif  count < 10:
+                clr = (0,255,0)
+            else:
+                clr = (0, 0, 255)
+
+
             if display_scale is not None:
                 for i in range(len(bb)):
                     bb[i] = int(bb[i] * display_scale)
                 # bb[0], bb[1] = int(bb[0]*display_scale), int(bb[1]*display_scale)
-            cv2.rectangle(image, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, 1)
+            cv2.rectangle(image, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, thickness)
             if text:
                 label = f"{self.object_names[cid]} : {conf:.2f}"
+                label = f"{count}"
                 (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                 y_label = max(bb[1], label_height)
                 cv2.rectangle(image, (bb[0], y_label - label_height), (bb[0] + label_width, y_label + baseLine),
                              (255, 255, 255), cv2.FILLED)
                 cv2.putText(image, label, (bb[0], y_label), cv2.FONT_HERSHEY_SIMPLEX, 0.5, clr, 1)
+                count += 1
         return image
 
 

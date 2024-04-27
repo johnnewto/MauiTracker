@@ -22,6 +22,11 @@ logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename
                     level=pms.LOGGING_LEVEL)
 logger = logging.getLogger(__name__)
 
+import os
+import PyQt5
+print(os.path.dirname(PyQt5.__file__))
+qt_path = os.path.dirname(PyQt5.__file__) + r'/Qt5/plugins/platforms'
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = qt_path
 
 # def mask2pos(mask):
 #     n_points = pms.NUM_HORIZON_POINTS

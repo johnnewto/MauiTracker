@@ -36,7 +36,6 @@ Modules:
 - basler_camera: Contains functions for working with Basler cameras.
 """
 
-
 import math
 import time
 import cv2
@@ -60,12 +59,14 @@ import utils.image_loader as il
 
 from utils import parameters as pms
 import logging
+
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',
                     level=pms.LOGGING_LEVEL)
 logger = logging.getLogger(__name__)
 
 testpoint = None
+
 
 class Main2:
     def __init__(self, _loader, path=''):
@@ -74,14 +75,14 @@ class Main2:
 
     def run(self, wait_timeout=1):
 
-        for j, (idx, image)  in enumerate(iter(loader)):
+        for j, (idx, image) in enumerate(iter(loader)):
             print("frame", idx)
             if j == 10:
                 break
 
 
 class Main:
-    def __init__(self, _loader, model, tracker, display_width=1200, record=False, path='', qgc=None):
+    def __init__(self, _loader, model, tracker, display_width=2000, record=False, path='', qgc=None):
         self.loader = _loader
         self.model: CMO_Peak = model
         self.tracker = tracker
@@ -97,8 +98,7 @@ class Main:
         self.heading_angle = 0.0
         self.qgc: ConnectQGC = qgc
         self.sock = socket.socket(socket.AF_INET,  # Internet
-                             socket.SOCK_DGRAM)  # UDP
-
+                                  socket.SOCK_DGRAM)  # UDP
 
     def experiment(self, image):
         gray_img_s = getGImages().small_gray.copy()
@@ -164,11 +164,8 @@ class Main:
         # except Exception as e:
         #     logger.warning(e)
 
-
-
-
     def run(self, wait_timeout=10, heading_angle=0, stop_frame=None):
-            """ 
+        """
             Run the main tracking loop.
 
             Args:
@@ -176,127 +173,126 @@ class Main:
                 heading_angle (int, optional): The heading angle. Defaults to 0.
                 stop_frame (int, optional): The frame number to stop at. Defaults to None.
             """
-            self.heading_angle = heading_angle
-            WindowName = "Main View"
-            cv2.namedWindow(WindowName, cv2.WINDOW_NORMAL)
+        self.heading_angle = heading_angle
+        WindowName = "Main View"
+        cv2.namedWindow(WindowName, cv2.WINDOW_NORMAL)
 
-            # These two lines will force your "Main View" window to be on top with focus.
-            cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+        # These two lines will force your "Main View" window to be on top with focus.
+        cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
 
-            if self.record:
-                video = VideoWriter(self.path + 'out.mp4', 15.0)
-            self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
+        if self.record:
+            video = VideoWriter(self.path + 'out.mp4', 15.0)
+        self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
 
-            first_run = True
-            while self.do_run:
-                k = -1
-                for (image, filename), frameNum, grabbed  in iter(self.loader):
+        first_run = True
+        while self.do_run:
+            k = -1
+            for (image, filename), frameNum, grabbed in iter(self.loader):
 
-                    if grabbed or first_run:
-                        first_run = False
-                        print(f"frame {frameNum} : {filename}  {grabbed}" )
-                        if len(image.shape) == 2:
-                            image = cv2.cvtColor(image, cv2.COLOR_BAYER_BG2RGB)
-                        setGImages(image)
-                        getGImages().mask_sky()
+                if grabbed or first_run:
+                    first_run = False
+                    print(f"frame {frameNum} : {filename}  {grabbed}")
+                    if len(image.shape) == 2:
+                        image = cv2.cvtColor(image, cv2.COLOR_BAYER_BG2RGB)
+                    setGImages(image)
+                    getGImages().mask_sky()
+                    getGImages().small_objects()
 
-                        # self.experiment(image)
+                    # self.experiment(image)
 
-                        # scale between source image and display image
-                        self.display_scale = self.display_width / image.shape[1]
+                    # scale between source image and display image
+                    self.display_scale = self.display_width / image.shape[1]
 
-                        # self.model.mask_sky()
 
-                        bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
-                                                                                            filterClassID=[1, 2], frameNum=frameNum)
-                        if STORE_LABELS:
-                            for i, bbox in enumerate(bboxes):
-                                self.label_list.append([filename, i, bbox[0]+bbox[2]//2, bbox[1]+bbox[2]//2])
+                    bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
+                                                                                        filterClassID=[1, 2], frameNum=frameNum)
+                    if STORE_LABELS:
+                        for i, bbox in enumerate(bboxes):
+                            self.label_list.append([filename, i, bbox[0] + bbox[2] // 2, bbox[1] + bbox[2] // 2])
 
-                        disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
-                        putText(disp_image, f'Frame# = {frameNum}, {filename}', row=170, fontScale=0.5)
+                    disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
+                    putText(disp_image, f'Frame# = {frameNum}, {filename}', row=170, fontScale=0.5)
 
-                        if self.record:
-                            # img = cv2.cvtColor(disp_image, code=cv2.COLOR_RGB2BGR)
-                            img = resize(disp_image, width=1400)  # not sure why this is needed to stop black screen video
-                            # img = (np.random.rand(200, 200, 3) * 255).astype('uint8')
-                            for i in range(2):
-                                video.add(img)
+                    if self.record:
+                        # img = cv2.cvtColor(disp_image, code=cv2.COLOR_RGB2BGR)
+                        img = resize(disp_image, width=1400)  # not sure why this is needed to stop black screen video
+                        # img = (np.random.rand(200, 200, 3) * 255).astype('uint8')
+                        for i in range(2):
+                            video.add(img)
 
-                        self.sock.sendto(b"Take Screen Shot", ("127.0.0.1", 5005))
+                    self.sock.sendto(b"Take Screen Shot", ("127.0.0.1", 5005))
 
-                    try:
-                        cv2_img_show('fullres_tiles', vstack(
-                            [np.hstack(self.model.fullres_img_tile_lst), np.hstack(self.model.fullres_cmo_tile_lst)]),
-                                     height=200)
+                try:
+                    cv2_img_show('fullres_tiles', vstack(
+                        [np.hstack(self.model.fullres_img_tile_lst), np.hstack(self.model.fullres_cmo_tile_lst)]),
+                                 height=200)
 
-                        cv2_img_show('lowres_tiles', vstack(
-                            [np.hstack(self.model.lowres_img_tile_lst), np.hstack(self.model.lowres_cmo_tile_lst)]),
-                                     height=200)
-                    except Exception as e:
-                        logger.error(e)
+                    cv2_img_show('lowres_tiles', vstack(
+                        [np.hstack(self.model.lowres_img_tile_lst), np.hstack(self.model.lowres_cmo_tile_lst)]),
+                                 height=200)
+                except Exception as e:
+                    logger.error(e)
 
-                    cv2_img_show(WindowName, disp_image)
-                    # k = cv2.waitKey(wait_timeout)
-                    if k == ord('q') or k == 27:
-                        self.do_run = False
-                        break
-                    if k == ord(' '):
-                        wait_timeout = 0
-                    if k == ord('g'):
-                        wait_timeout = 1
-                    if k == ord('d'):
-                        # change direction
-                        wait_timeout = 0
-                        self.loader._direction_fwd = not self.loader._direction_fwd
-                    if k == ord('r'):
-                        # change direction
-                        wait_timeout = 0
-                        self.loader.restep = True
-                    # if k == ord('t'):
-                    #     r = int(self.images.small_rgb.shape[0] * 0.9)
-                    #     c =  self.model.small_rgb.shape[1] // 2
-                    #     bboxes.append([3000, 2000, 40, 40])
-                    #     confidences.append(1)
-                    #     class_ids.append(2)
-                    #     self.tracker.update(bboxes, confidences, class_ids, (0, 0))
-                    #     # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
-                    #     # trackers = mot_tracker.update(dets)
-                    #     self.testpoint = (r, c)
-                    #     self.loader.direction_fwd = not self.loader.direction_fwd
+                cv2_img_show(WindowName, disp_image)
+                # k = cv2.waitKey(wait_timeout)
+                if k == ord('q') or k == 27:
+                    self.do_run = False
+                    break
+                if k == ord(' '):
+                    wait_timeout = 0
+                if k == ord('g'):
+                    wait_timeout = 1
+                if k == ord('d'):
+                    # change direction
+                    wait_timeout = 0
+                    self.loader._direction_fwd = not self.loader._direction_fwd
+                if k == ord('r'):
+                    # change direction
+                    wait_timeout = 0
+                    self.loader.restep = True
+                # if k == ord('t'):
+                #     r = int(self.images.small_rgb.shape[0] * 0.9)
+                #     c =  self.model.small_rgb.shape[1] // 2
+                #     bboxes.append([3000, 2000, 40, 40])       
+                #     confidences.append(1)
+                #     class_ids.append(2)
+                #     self.tracker.update(bboxes, confidences, class_ids, (0, 0))
+                #     # dets = np.array([convert_x_to_bbox([c, r, 900, 1], 0.9).squeeze() for (r, c) in pks])
+                #     # trackers = mot_tracker.update(dets)
+                #     self.testpoint = (r, c)
+                #     self.loader.direction_fwd = not self.loader.direction_fwd
 
-                    if k == ord('f'):
-                        import tkinter.filedialog
+                if k == ord('f'):
+                    import tkinter.filedialog
 
-                        path = tkinter.filedialog.askdirectory()
-                        self.loader.open_path(path)
+                    path = tkinter.filedialog.askdirectory()
+                    self.loader.open_path(path)
 
-                        # create_filechooser(default_path=str(Path.home()) + "/data/Karioitahi_09Feb2022/")
-                    if stop_frame is not None and stop_frame == frameNum:
-                        logger.info(f" Early stop  at {frameNum}")
-                        break
-                    k = cv2.waitKey(wait_timeout)
-
-                if  stop_frame is not None and stop_frame == frameNum:
+                    # create_filechooser(default_path=str(Path.home()) + "/data/Karioitahi_09Feb2022/")
+                if stop_frame is not None and stop_frame == frameNum:
                     logger.info(f" Early stop  at {frameNum}")
                     break
-                # self.loader.direction_fwd = not self.loader.direction_fwd
-                wait_timeout = 0
-
                 k = cv2.waitKey(wait_timeout)
-                if k == ord('q') or k == 27:
-                    break
 
-            if self.record:
-                video.close()
-            self.sock.sendto(b"End Record", ("127.0.0.1", 5005))
+            if stop_frame is not None and stop_frame == frameNum:
+                logger.info(f" Early stop  at {frameNum}")
+                break
+            # self.loader.direction_fwd = not self.loader.direction_fwd
+            wait_timeout = 0
 
-            cv2.destroyAllWindows()
-            self.loader.close()
+            k = cv2.waitKey(wait_timeout)
+            if k == ord('q') or k == 27:
+                break
 
-            time.sleep(0.5)
+        if self.record:
+            video.close()
+        self.sock.sendto(b"End Record", ("127.0.0.1", 5005))
 
+        cv2.destroyAllWindows()
+        self.loader.close()
+
+        time.sleep(0.5)
 
     def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
 
@@ -304,17 +300,23 @@ class Main:
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
         contours, hierarchy = cv2.findContours(getGImages().mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        disp_image = resize(image, width=getGImages().small_gray.shape[1])
+        # disp_image = resize(image, width=getGImages().small_gray.shape[1])
+        disp_image = image.copy()
+
+        display_scale = (image.shape[1] / getGImages().small_gray.shape[1], image.shape[0] / getGImages().small_gray.shape[0])  
+
+        # multiply the contours by the display_scale
+        contours = [np.squeeze((c * display_scale).astype('int32')) for c in contours]
 
         for idx in range(len(contours)):
-            cv2.drawContours(disp_image, contours, idx, (255,0,0), 1)
+            cv2.drawContours(disp_image, contours, idx, (255, 0, 0), 1)
         disp_image = resize(disp_image, width=self.display_width)
 
-        angle_inc = sc  * 54.4 / image.shape[1]
+        angle_inc = sc * 54.4 / image.shape[1]
         self.heading_angle -= angle_inc
         if self.qgc is not None:
             self.qgc.high_latency2_send(heading=self.heading_angle)
-        putText(disp_image, f'{self.heading_angle :.3f}', row=disp_image.shape[0]-20, col=disp_image.shape[1]//2)
+        putText(disp_image, f'{self.heading_angle :.3f}', row=disp_image.shape[0] - 20, col=disp_image.shape[1] // 2)
 
         # detected planes
         # argplanes = np.nonzero(class_ids == 3)
@@ -322,12 +324,12 @@ class Main:
         # if len(class_ids) > 0:
         #     class_ids[0] = 3 # make the first one a plane....  JN hack todo fix
 
-        detections = [bb  for bb, d in zip(bbwhs, class_ids) if d == 3]
+        detections = [bb for bb, d in zip(bbwhs, class_ids) if d == 3]
 
         for bb in detections:
             wid = bb[2]
             rad_pix = math.radians(54.4 / image.shape[1])
-            dist = 40/ (wid * rad_pix)
+            dist = 40 / (wid * rad_pix)
             heading = (bb[0] - image.shape[1] // 2) * 54.4 / image.shape[1]
             ang = self.heading_angle + heading
             print(f"plane detected at range {dist} {ang} ")
@@ -344,27 +346,35 @@ class Main:
 
         cv2.imshow('blockreduce_mask', resize(getGImages().mask * 255, width=1000))
 
-        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(getGImages().cmo ), width=1000), cv2.COLORMAP_MAGMA))
+        cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(getGImages().cmo), width=1000), cv2.COLORMAP_MAGMA))
 
-        # Tuple of 10 elements representing (frame, id, bb_left, bb_top, bb_width, bb_height, conf, x, y, z)
-        # remove the ground class
-        _bboxes, _confidences, _class_ids = [], [], []
-        # for i, (bb,conf,id) in enumerate(zip(bboxes, confidences, class_ids)):
-        #     # if i == 0 or (id != 1 and id != 2) :  # cloud and ground
-        #     # if conf > 0.05:
-        #         _bboxes.append(bb)
-        #         _confidences.append(conf)
-        #         _class_ids.append(id)
+        TRACKER = False
+        if TRACKER:
+            # Tuple of 10 elements representing (frame, id, bb_left, bb_top, bb_width, bb_height, conf, x, y, z)
+            # remove the ground class
+            _bboxes, _confidences, _class_ids = [], [], []
+    
+            for i, (bb, conf) in enumerate(zip(bboxes, confidences)):
+                # if conf > 0.05:
+                xyxy_conf = [bb[0] - 80, bb[1] - 40, bb[0] + 80, bb[1] + 40, conf]
+                _bboxes.append(xyxy_conf)
+    
+            _bboxes = np.array(_bboxes)
 
-        # tracks = self.tracker.update(_bboxes, _confidences, _class_ids, (sr, sc))
-        # _bboxes = [bb.append(conf) for bb, conf in zip(bboxes, confidences)]
-        for i, (bb, conf) in enumerate(zip(bboxes, confidences)):
-            # if conf > 0.05:
-            xyxy_conf = [bb[0]-80, bb[1]-40, bb[0]+80, bb[1]+40, conf]
-            _bboxes.append(xyxy_conf)
-        # bboxes[:, 2:4] += bboxes[:, 0:2]
-        _bboxes = np.array(_bboxes)
-        tracks = self.tracker.update(_bboxes, confidences, (sc, sr))
+
+            tracks = self.tracker.update(_bboxes, confidences, (sc, sr))
+
+            draw_tracks(disp_image, tracks, dotsize=1, colors=self.model.bbox_colors, display_scale=self.display_scale)
+ 
+            tiles = old_make_tile_list(image, tracks)
+
+            tile_img = tile_images(tiles, label=True, colors=self.model.bbox_colors)
+            tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
+            disp_image = np.vstack([tile_img, disp_image])
+
+        else:
+            self.model.draw_bboxes(disp_image, self.model.bbwhs, None, None, display_scale=self.display_scale, text=True)
+
 
         if self.testpoint is None:
             self.testpoint = (int(disp_image.shape[0] * 0.9), disp_image.shape[1] // 2)
@@ -372,33 +382,24 @@ class Main:
         self.testpoint = (self.testpoint[0] + int(sr * self.display_scale), self.testpoint[1] + int(sc * self.display_scale))
         cv2.circle(disp_image, (self.testpoint[1], self.testpoint[0]), 30, (0, 255, 0), 1)
 
-
         # for i in range(len(bboxes)):
         #     bboxes[i] = (bboxes[i] * self.display_scale).astype('int32')
 
-        draw_tracks(disp_image, tracks, dotsize=1, colors=self.model.bbox_colors, display_scale=self.display_scale)
-
-        # self.model.draw_bboxes(disp_image, self.model.bbwhs, None, None, display_scale=self.display_scale, text=False)
 
         # grab tiles form the src image, accounting for the display scale
-
         # tiles = make_tile_list(self.model.fullres_img_tile_lst, tracks)
-        tiles = []
-        tiles = old_make_tile_list(image, tracks)
+
+
 
         if STORE_TILES:
             # logger.warning( " all_tiles.append(tiles)  will hog memory")
             for tl in tiles:
-                self.all_tiles.append(tl[0])    # warning this will hog memory
-        try:
-            tile_img = tile_images(tiles, label=True, colors=self.model.bbox_colors)
-        except Exception as e:
-            logger.warning(e)
-        # tile_img = cv2.cvtColor(resize(tile_img, width=self.display_width), cv2.COLOR_GRAY2BGR)
-        tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
-        disp_image = np.vstack([tile_img, disp_image])
-        return disp_image
+                self.all_tiles.append(tl[0])  # warning this will hog memory
 
+        # tile_img = cv2.cvtColor(resize(tile_img, width=self.display_width), cv2.COLOR_GRAY2BGR)
+        
+       
+        return disp_image
 
 
 if __name__ == '__main__':
@@ -416,9 +417,8 @@ if __name__ == '__main__':
     DRAW_BOUNDING_BOXES = True
     USE_GPU = False
 
-
     USE_QGC = False
-    if USE_QGC:   # for position on map  ( special compiled version) should use mavlink message instead)
+    if USE_QGC:  # for position on map  ( special compiled version) should use mavlink message instead)
         from utils.qgcs_connect import ConnectQGC
     # method = 'CentroidKF_Tracker'
 
@@ -431,22 +431,22 @@ if __name__ == '__main__':
     #                      tracker_output_format='mot_challenge')
 
     _tracker = Sort(max_age=5,
-                       min_hits=3,
-                       iou_threshold=0.2)
+                    min_hits=3,
+                    iou_threshold=0.2)
 
     # home = str(Path.home())
     _model = CMO_Peak(confidence_threshold=0.1,
-                        labels_path='data/imagenet_class_index.json',
-                        # labels_path='/media/jn/0c013c4e-2b1c-491e-8fd8-459de5a36fd8/home/jn/data/imagenet_class_index.json',
-                        expected_peak_max=60,
-                        peak_min_distance=5,
-                        num_peaks=5,
-                        maxpool=12,
-                        CMO_kernalsize=3,
-                        track_boxsize=(80,160),
-                        bboxsize=40,
-                        draw_bboxes=True,
-                        device=None, )
+                      labels_path='data/imagenet_class_index.json',
+                      # labels_path='/media/jn/0c013c4e-2b1c-491e-8fd8-459de5a36fd8/home/jn/data/imagenet_class_index.json',
+                      expected_peak_max=60,
+                      peak_min_distance=5,
+                      num_peaks=10,
+                      maxpool=12,
+                      CMO_kernalsize=3,
+                      track_boxsize=(80, 160),
+                      bboxsize=40,
+                      draw_bboxes=True,
+                      device=None, )
 
     # gen_cmo = GenCMO(shape=(600,1000), dt=0.1, n=5)
     (rows, cols) = (2000, 3000)
@@ -455,8 +455,11 @@ if __name__ == '__main__':
     crop = [_r, _r + rows, _c, _c + cols]
     # crop = None
     home = str(Path.home())
-    path = "data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
 
+    # if data path exists use it
+    path = home + '/data/maui-data/Karioitahi_09Feb2022/132MSDCF-28mm-f4'
+    if not os.path.exists(path):
+        path = "data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
 
     # USE_CAMERA = 'CAM=SONY'
     # USE_CAMERA = 'CAM=BASLER'
@@ -466,6 +469,7 @@ if __name__ == '__main__':
 
     if USE_CAMERA == 'CAM=SONY':
         import utils.sony_cam as sony
+
         try:
             cam_serials = ['00001']
             cam_names = ['FrontCentre']
@@ -480,6 +484,7 @@ if __name__ == '__main__':
 
     elif USE_CAMERA == 'CAM=BASLER':
         import utils.basler_camera as basler
+
         try:
             cam_serials = ['23479535']
             cam_names = ['FrontCentre']
@@ -493,7 +498,7 @@ if __name__ == '__main__':
             logger.error(e)
             loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
 
-    else :
+    else:
         loader = il.ImageLoader(path + '/*.JPG', mode='RGB', cvtgray=False, start_frame=0)
     if USE_QGC:
         NZ_START_POS = (-36.9957915731748, 174.91686500754628)
@@ -501,13 +506,13 @@ if __name__ == '__main__':
     else:
         qgc = None
 
-    main = Main(loader, _model, _tracker, display_width=1500, record=RECORD, path=path, qgc=qgc)
+    main = Main(loader, _model, _tracker, display_width=6000, record=RECORD, path=path, qgc=qgc)
 
     main.run(wait_timeout=0, heading_angle=-70, stop_frame=STOP_FRAME)
 
     if STORE_TILES:
         np_tiles = np.asarray(main.all_tiles)
-        np.save(path+'np_tiles.npy', np_tiles)
+        np.save(path + 'np_tiles.npy', np_tiles)
 
     if STORE_LABELS:
         def save_csv(csv_file_path):
@@ -523,9 +528,9 @@ if __name__ == '__main__':
             message = f'csv saved to: {csv_file_path}'
             print(message)
 
+
         path_to_save = path
         csv_file_path = path_to_save + 'assigned_classes.csv'
         save_csv(csv_file_path)
-
 
     # print(f'FPS = {loader.get_FPS()}')

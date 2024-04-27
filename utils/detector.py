@@ -23,7 +23,11 @@ class Detector:
 
         np.random.seed(12345)
         if draw_bboxes:
+            # import matplotlib.pyplot as plt
+
+            # self.bbox_colors = {key: (plt.cm.hot(i / len(self.object_names.keys()))[:3] * 255) for i, in range(20)}
             self.bbox_colors = {key: np.random.randint(0, 255, size=(3,)).tolist() for key in self.object_names.keys()}
+            pass
 
     def detect(self, image):
         """
@@ -78,9 +82,15 @@ class Detector:
         Returns:
             numpy.ndarray: image with the bounding boxes drawn on it.
         """
-
+        count = 0
         for bb, conf, cid in zip(bboxes, confidences, class_ids):
-            clr = [int(c) for c in self.bbox_colors[cid]]
+            # clr = [int(c) for c in self.bbox_colors[cid]]/
+            if count < 5:
+                clr = (0, 0, 255)
+            elif  count < 10:
+                clr = (0,255,0)
+            else:
+                clr = (255, 0, 0)
             cv.rectangle(image, (bb[0], bb[1]), (bb[0] + bb[2], bb[1] + bb[3]), clr, 1)
             label = "{}:{:.4f}".format(self.object_names[cid], conf)
             (label_width, label_height), baseLine = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)

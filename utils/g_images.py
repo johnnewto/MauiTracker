@@ -63,9 +63,15 @@ class Images:
 
     def mask_sky(self):
         self.mask = find_sky_2(self.minpool, threshold=80,  kernal_size=7)
+
+    def small_objects(self):
+        """ here not really using CMO approach but just BH operation
+            bottom-hat transformation Filtering Approach
+            A Study of Morphological Pre-Processing Approaches for Track-Before-Detect Dim Target Detection
+            https://eprints.qut.edu.au/214476/1/16823.pdf
+        """
         self.cmo = BH_op(self.minpool, (self.CMO_kernalsize, self.CMO_kernalsize))
         self.cmo[self.mask > 0] = 0
-
 
 
 # Set global images buffer
