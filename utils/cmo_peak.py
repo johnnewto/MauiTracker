@@ -11,8 +11,13 @@ from skimage.feature.peak import peak_local_max
 from utils.image_utils import resize, BH_op, get_tile, min_pool, crop_idx
 from utils.g_images import *
 from utils.horizon import find_sky_2
-import utils.pytorch_utils as ptu
-import torch
+try:
+    # optional use of torch as its big to install
+    import torch
+    import utils.pytorch_utils as ptu
+except:
+    pass
+
 from utils import parameters as pms
 import logging
 import typing as typ
@@ -70,13 +75,12 @@ class CMO_Peak(Detector):
         x = np.arange(-10, 10 + 1, 10)
         y = np.arange(-10, 10 + 1, 10)
         self._xv, self._yv = np.meshgrid(x, y)
-        self.device = device
-        if self.device is None:
-            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
         try:
-            self._res18_model = ptu.loadCustomModel(device=self.device)
-            self.predictor = ptu.Predict(self._res18_model).to(self.device)
+            self.device = device
+            if self.device is None:
+                self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                self._res18_model = ptu.loadCustomModel(device=self.device)
+                self.predictor = ptu.Predict(self._res18_model).to(self.device)
         except Exception as e:
             logger.warning(e)
 
@@ -107,7 +111,7 @@ class CMO_Peak(Detector):
             getGImages().last_minpool_f = getGImages().minpool_f
             sc, sr = 0, 0
 
-        return (round(sr * self.maxpool), round(sc * self.maxpool))
+        return round(sr * self.maxpool), round(sc * self.maxpool)
 
     def get_bb(self, img, pos, threshold=0.5):
         """
@@ -155,68 +159,51 @@ class CMO_Peak(Detector):
         self.fullres_img_tile_lst = []
         self.lowres_cmo_tile_lst = []
         self.lowres_img_tile_lst = []
-        pks = []
-        bbwhs = []
-        self.cmo_pk_vals = []
+        self.pks = []
+        self.bbwhs = []
+        self.pk_vals = []
 
         # get low res and full res peaks
         # gather all the tiles centered on the peak positions
-        for i, (r, c) in enumerate(_pks):
+        for (r, c) in _pks:
             bs0 = round(self.bboxsize // 2)
             lowres_img = get_tile(getGImages().small_gray, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
             lowres_cmo = get_tile(getGImages().cmo, (r - bs0, c - bs0), (self.bboxsize, self.bboxsize))
             self.lowres_img_tile_lst.append(lowres_img)
             self.lowres_cmo_tile_lst.append(lowres_cmo)
-            # bbwh = self.get_bb(lowres_cmo, (bs0, bs0))
-            # if bbwh is not None:
-            #     bbwh = [(c - bs0 + bbwh[0]) * self.maxpool, (r - bs0 + bbwh[1]) * self.maxpool, bbwh[2] * self.maxpool,
-            #             bbwh[3] * self.maxpool]
-            #     bbwhs.append(bbwh)
-            # else:
-            #     logger.error("bbwh could not be created")
+     
             bs = self.bboxsize
             r, c = r * self.maxpool, c * self.maxpool
             img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
             fullres_cmo = BH_op(img, (self.CMO_kernalsize * 2 + 1, self.CMO_kernalsize * 2 + 1))
             (_r, _c) = np.unravel_index(fullres_cmo.argmax(), fullres_cmo.shape)
             r, c = r - bs + _r, c - bs + _c
-            pks.append((r, c))
 
             bbwh = [c - bs , r - bs, bs * 2, bs * 2]
-            bbwhs.append(bbwh)
 
-            img = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2))
-            fullres_img = img
-            self.fullres_cmo_tile_lst.append(fullres_cmo)
-            self.fullres_img_tile_lst.append(fullres_img)
-            pk_val = fullres_cmo[bs, bs]
-            self.cmo_pk_vals.append(pk_val)
-            # if pk_val < 1:
-            #     logger.warning(f'Detected Peak Value ({i} : {pk_val}) is very low? Frame {self.frameNum}')
-            # bbwh = self.get_bb(fullres_cmo, (bs, bs), threshold=0.25)
-            # # draw width indicator
-            # _row = 20
-            # _col = bbwh[0]
-            # wid = bbwh[2]
-            #
-            # fullres_img[_row, _col:_col + wid] = (255, 255, 0)
+            fullres_tile = get_tile(getGImages().full_rgb, (r - bs, c - bs), (bs * 2, bs * 2), copy=True) # copy so any changes to fullres_cmo_tile_lst do not affect the image
+            self.fullres_cmo_tile_lst.append(fullres_cmo)  
+            self.fullres_img_tile_lst.append(fullres_tile)
+            pk_val = fullres_cmo[bs, bs] 
+        
+            self.pks.append((r, c))
+            self.pk_vals.append(pk_val)
+            self.bbwhs.append(bbwh)
 
-        self.pks = pks
-        self.bbwhs = bbwhs
-        self.pk_gradients = []
-        for i, (r, c) in enumerate(pks):
-            grad = getGImages().full_gray[r + self._yv, c + self._xv].astype(np.int32)
-            grad = grad - grad[1, 1]
-            grad[1, 1] = grad.max()
-            self.pk_gradients.append(grad)
-        logger.info(f'Found {len(pks)} peaks')
-        return self.pks, self.bbwhs
+        logger.info(f'Found {len(self.pks)} peaks')
+        # if length tile list < self.num_peakspad with zeros
+        while len(self.fullres_img_tile_lst) < self.num_peaks:
+            bs2 = self.bboxsize*2
+            self.fullres_img_tile_lst.append(np.zeros((bs2, bs2, 3), dtype=np.uint8))
+            self.lowres_img_tile_lst.append(np.zeros((bs2, bs2), dtype=np.uint8))
+            self.lowres_cmo_tile_lst.append(np.zeros((bs2, bs2), dtype=np.uint8))
+            self.pk_vals.append(0)
+            self.bbwhs.append([0, 0, 0, 0])
 
-    def test_foward(self):
-        """
-        Test forward method.
-        """
-        pass
+
+        
+        return self.pk_vals, self.bbwhs
+
 
     def classify(self, detections, image, pk_vals, pk_gradients, scale, filterClassID):
         """
@@ -269,79 +256,38 @@ class CMO_Peak(Detector):
 
 
 
-    def detect(self, scale=1, filterClassID=None, frameNum=None):
+    def detect(self):
         """
-        Detect objects in the input image.
+        Detect objects in the current image.
 
         Args:
-            image (numpy.ndarray): Input image.
+            inone
 
         Returns:
             tuple: Tuple containing the following elements:
-                - bboxes (numpy.ndarray): Bounding boxes with shape (n, 4) containing constant sized objects with each row as `(xmin, ymin, width, height)`.
-                - bbwh (numpy.ndarray): Bounding boxes with shape (n, 4) containing accurate detected objects with each row as `(xmin, ymin, width, height)`.
-                - confidences (numpy.ndarray): Confidence or detection probabilities if the detected objects with shape (n,).
-                - class_ids (numpy.ndarray): Class_ids or label_ids of detected objects with shape (n, 4)
+                - bbwhs List(numpy.ndarray): Bounding boxes with shape (n, 4) containing accurate detected objects with each row as `(xmin, ymin, width, height)`.
+                - confidences List(numpy.ndarray): Confidence or detection probabilities if the detected objects with shape (n,).
+                - class_ids List(numpy.ndarray): Class_ids or label_ids of detected objects with shape (n, 4)
         """
-        if filterClassID is None:
-            filterClassID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
-        self.frameNum = frameNum
-        if self.width is None or self.height is None:
-            (self.height, self.width) = getGImages().full_rgb.shape[:2]
+        self.height, self.width = getGImages().full_rgb.shape[:2]
+        pk_vals, bbwhs = self.find_peaks()
 
-        (sr, sc) = self.align()
-        detections, bbwhs = self.find_peaks()
-        centers = [ (bb[1]+bb[3]//2, bb[0]+bb[2]//2)  for bb in bbwhs]
-        bboxes = []
-        for detection in detections:
-            bs = self.bboxsize//2
-            row, col = detection
-            row, col = crop_idx(row, col, bs, getGImages().full_rgb.shape)
-            bbox = (col-bs, row-bs, col+bs, row+bs)
-            bboxes.append(bbox)
-
-        # try:  27/4/24  JN took this out as NN not trained
-
-        #     confidences, class_ids = self.classifyNN(self.fullres_img_tile_lst)
-        # except Exception as e:
-        #     # self.classify(detections, image, pk_vals, pk_gradients, scale, filterClassID)
-        #     logger.error(e)
-        #     # confidences = [1] * len(self.fullres_img_tile_lst)
-        #     confidences = [cmo_pk_val / 255.0 for cmo_pk_val in self.cmo_pk_vals]
-        #     class_ids = [0] * len(self.fullres_img_tile_lst)
-
-        confidences = [cmo_pk_val / 255.0 for cmo_pk_val in self.cmo_pk_vals]
+        confidences = [pk_val / 255.0 for pk_val in pk_vals]
         class_ids = [0] * len(self.fullres_img_tile_lst)
 
-        # for bbwh, tile in zip(self.bbwhs, self.fullres_img_tile_lst):
-        #     if bbwh is not None:
-        #         r,c = tile.shape[0]//2, tile.shape[1]//2
-        #         w2, h2 = bbwh[2]//2, bbwh[3]//2
-        #         pos = (c-w2, r-h2)
-        #         end = (c+w2, r+h2)
-        #         cv2.rectangle(tile, pos, end, (255, 255, 0), 1)
-        bboxes = xyxy2xywh(np.array(bboxes)).tolist()
+        try:
+            # sort lists by confidences (peak values)
+            zipped_lists = list(zip( bbwhs, confidences, class_ids))
+            # Sort the zipped lists by confidences (the third element in each tuple)
+            sorted_lists = sorted(zipped_lists, key=lambda x: x[2], reverse=True)
+            # Unzip the sorted list back into individual lists
+            bbwhs, confidences, class_ids = zip(*sorted_lists)
+        except Exception as e:
+            logger.warning(e)
 
-        # Zip the lists together
-        zipped_lists = list(zip(bboxes, bbwhs, confidences, class_ids))
+        return  bbwhs, confidences, class_ids
 
-        # Sort the zipped lists by confidences (the third element in each tuple)
-        sorted_lists = sorted(zipped_lists, key=lambda x: x[2], reverse=True)
-
-        # Unzip the sorted list back into individual lists
-        bboxes, bbwhs, confidences, class_ids = zip(*sorted_lists)
-
-        return bboxes, bbwhs, confidences, class_ids, (sr, sc)
-
-        # if len(confidences):
-        #     bboxes = xyxy2xywh(np.array(bboxes)).tolist()
-        #     # class_ids = np.array(class_ids).astype('int')
-        #     # return np.array(bboxes), np.array(bbwhs), np.array(confidences), class_ids, (sr, sc)
-        #     return bboxes, bbwhs, confidences, class_ids, (sr, sc)
-        # else:
-        #     return [], [], [], [], (sr, sc)
-            # return np.array([]), np.array([]), np.array([]), np.array([]), (sr, sc)
 
     def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=6, alpha:typ.Union[float, None]=0.3):
         """

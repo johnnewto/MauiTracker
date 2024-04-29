@@ -44,17 +44,23 @@ import numpy as np
 import socket
 import csv, os
 
-from mot_sort_2 import Sort
+
 from utils.cmo_peak import *
-from motrackers.utils import draw_tracks
+
 
 from utils.g_images import *
 from utils.horizon import *
 from utils.image_utils import *
 from utils.show_images import *
 import utils.image_loader as il
-# import utils.sony_cam as sony
-# import utils.basler_camera as basler
+try:
+    # optional installs
+    from motrackers.utils import draw_tracks
+    from mot_sort_2 import Sort
+    import utils.sony_cam as sony
+    import utils.basler_camera as basler
+except:
+    pass
 
 
 from utils import parameters as pms
@@ -182,7 +188,8 @@ class Main:
         cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
 
         if self.record:
-            video = VideoWriter(self.path + 'out.mp4', 15.0)
+            video = VideoWriter(self.path + '.mp4', fps=5.0)
+            print(f"Recording to {self.path}.mp4")
         self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
 
         first_run = True
@@ -204,19 +211,20 @@ class Main:
                     # scale between source image and display image
                     self.display_scale = self.display_width / image.shape[1]
 
-
-                    bboxes, bbwhs, confidences, class_ids, (sr, sc) = self.model.detect(scale=self.display_scale,
-                                                                                        filterClassID=[1, 2], frameNum=frameNum)
+                    # sr, sc = self.model.align()
+                    self.model.detect()
                     if STORE_LABELS:
-                        for i, bbox in enumerate(bboxes):
+                        for i, bbox in enumerate(self.model.bbwhs):
                             self.label_list.append([filename, i, bbox[0] + bbox[2] // 2, bbox[1] + bbox[2] // 2])
 
-                    disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
+                    disp_image = self.display_results(image)
+                    # disp_image = self.display_results(image, frameNum, bboxes, bbwhs, confidences, class_ids, (sr, sc))
+ 
                     putText(disp_image, f'Frame# = {frameNum}, {filename}', row=170, fontScale=0.5)
 
                     if self.record:
                         # img = cv2.cvtColor(disp_image, code=cv2.COLOR_RGB2BGR)
-                        img = resize(disp_image, width=1400)  # not sure why this is needed to stop black screen video
+                        img = resize(disp_image, width=3000)  # not sure why this is needed to stop black screen video
                         # img = (np.random.rand(200, 200, 3) * 255).astype('uint8')
                         for i in range(2):
                             video.add(img)
@@ -307,17 +315,99 @@ class Main:
         """
         # convert to rgb color
         mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
-        # mask_rgb = np.where(mask_rgb == [255, 255, 255], np.int8(color), mask_rgb)
-        # mask_rgb = mask_rgb * np.int8(color)
-        mask_rgb = np.where(mask_rgb == [255, 255, 255], np.int8(color), mask_rgb).astype('uint8')
+        mask_rgb = np.where(mask_rgb == [255, 255, 255], np.uint8(color), mask_rgb)
 
         # resize mask to image size
         mask_rgb = cv2.resize(mask_rgb, (image.shape[1], image.shape[0]))
         return cv2.addWeighted(mask_rgb, alpha, image, 1 , 0)
-        
-    def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
+    
 
-        (sr, sc) = pos
+    def draw_bboxes(self, image, bboxes, confidences, text=True, thickness=6, alpha:typ.Union[float, None]=0.3):
+        """
+        Draw the bounding boxes about detected objects in the image. Assums the bb are sorted by confidence
+
+        Args:
+            image (numpy.ndarray): Image or video frame.
+            bboxes (numpy.ndarray): Bounding boxes pixel coordinates as (xmin, ymin, width, height)
+
+        Returns:
+            numpy.ndarray: image with the bounding boxes drawn on it.
+        """
+
+        # support for alpha blending overlay
+        overlay = image.copy() if alpha is not None else image    
+        count = 0
+        for bb in bboxes:
+            clr = (255, 0, 0) if count < 5 else (0,255,0) if count < 10 else (0, 0, 255) # in order red, green, blue
+            cv2.rectangle(overlay, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, thickness)
+            if False:
+                _font_size = 1.0
+                _thickness = 2
+                label = f"{count}"
+                (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, _font_size, _thickness)
+                y_label = max(bb[1], label_height)
+                cv2.rectangle(overlay, (bb[0], y_label - label_height), (bb[0] + label_width, y_label + baseLine),
+                             (0, 0, 0), cv2.FILLED)
+                cv2.putText(overlay, label, (bb[0], y_label+5), cv2.FONT_HERSHEY_SIMPLEX, _font_size, clr, _thickness)
+            if text:
+                self.putText(overlay, f'{count}', (bb[0], bb[1]-0), fontScale=1.0, color=clr, thickness=2)
+            count += 1
+        
+        if alpha is not None:
+            cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
+        return image
+
+    # def puttext(self, image, text, row, col, fontScale=0.5, color=(255, 255, 255), thickness=1):
+    #     """
+    #     Put text on the image."""
+
+    def putText(self, img, text, position, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=(255, 255, 255), thickness=2):
+        """
+        Put text on the image with a black background.
+
+        Args:
+            img (numpy.ndarray): The image.
+            text (str): The text to put on the image.
+            position (tuple): The position where the text should be put.
+            fontFace (int): The font type. Default is cv2.FONT_HERSHEY_SIMPLEX.
+            fontScale (float): Font scale. Default is 1.
+            color (tuple): Font color. Default is white.
+            thickness (int): Thickness of the lines used to draw a text. Default is 2.
+
+        Returns:
+            numpy.ndarray: The image with the text.
+        """
+        # Calculate the width and height of the text
+        (text_width, text_height), baseLine = cv2.getTextSize(text, fontFace, fontScale, thickness)
+        # Determine the y-coordinate for the text
+        y_text = max(position[1], text_height)
+        # Draw a filled rectangle on the image at the location where the text will be placed
+        cv2.rectangle(img, (position[0], y_text - text_height), (position[0] + text_width, y_text + baseLine), (0, 0, 0), cv2.FILLED)
+        # Draw the text on the image at the specified location
+        cv2.putText(img, text, (position[0], y_text+text_height//4), fontFace, fontScale, color, thickness, cv2.LINE_AA)
+
+        return img
+
+    def display_results(self, image, alpha=0.3):
+
+        disp_image = self.overlay_mask(image, getGImages().mask, alpha=alpha)
+        disp_image = self.draw_bboxes(disp_image, self.model.bbwhs, self.model.pks, text=True, thickness=8, alpha=alpha)
+        for count, tile in enumerate (self.model.fullres_img_tile_lst):
+            # puttext label count in left top corner
+            clr = (255, 0, 0) if count < 5 else (0,255,0) if count < 10 else (0, 0, 255)  # in order red, green, blue
+            # cv2.putText(tile, str(count), (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, clr, 1)
+            self.putText(tile, f'{count}', (0,10), fontScale=0.4, color=clr, thickness=1)
+        try:
+            tile_img = np.hstack(self.model.fullres_img_tile_lst)
+            tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
+            disp_image = np.vstack([tile_img, disp_image])
+        except Exception as e:
+            logger.error(e)
+                                                       
+        return disp_image
+           
+    def old_display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
+
 
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
@@ -340,40 +430,34 @@ class Main:
 
         # disp_image = resize(disp_image, width=self.display_width)
 
-        angle_inc = sc * 54.4 / image.shape[1]
-        self.heading_angle -= angle_inc
-        if self.qgc is not None:
-            self.qgc.high_latency2_send(heading=self.heading_angle)
-        putText(disp_image, f'{self.heading_angle :.3f}', row=disp_image.shape[0] - 20, col=disp_image.shape[1] // 2)
-
-        # detected planes
-        # argplanes = np.nonzero(class_ids == 3)
-
-        # if len(class_ids) > 0:
-        #     class_ids[0] = 3 # make the first one a plane....  JN hack todo fix
-
-        detections = [bb for bb, d in zip(bbwhs, class_ids) if d == 3]
-
-        for bb in detections:
-            wid = bb[2]
-            rad_pix = math.radians(54.4 / image.shape[1])
-            dist = 40 / (wid * rad_pix)
-            heading = (bb[0] - image.shape[1] // 2) * 54.4 / image.shape[1]
-            ang = self.heading_angle + heading
-            print(f"plane detected at range {dist} {ang} ")
+      
+        SEND_ADSB = False
+        if SEND_ADSB:
+            angle_inc = sc * 54.4 / image.shape[1]
+            self.heading_angle -= angle_inc
             if self.qgc is not None:
-                self.qgc.adsb_vehicle_send('bob', dist, ang, max_step=100)
+                self.qgc.high_latency2_send(heading=self.heading_angle)
+                putText(disp_image, f'{self.heading_angle :.3f}', row=disp_image.shape[0] - 20, col=disp_image.shape[1] // 2)
 
-        # if len(argplanes) > 0:
-        #     idx = argplanes.flatten()
-        #     ranges = bbwhs[idx][2]
-        #     headings = bbwhs[idx][0]
-        #
-        #     for r in ranges:
-        #         print(f"plane detected at range {r}")
+            detections = [bb for bb, d in zip(bbwhs, class_ids) if d == 3]
+
+            for bb in detections:
+                wid = bb[2]
+                rad_pix = math.radians(54.4 / image.shape[1])
+                dist = 40 / (wid * rad_pix)
+                heading = (bb[0] - image.shape[1] // 2) * 54.4 / image.shape[1]
+                ang = self.heading_angle + heading
+                print(f"plane detected at range {dist} {ang} ")
+                if self.qgc is not None:
+                    self.qgc.adsb_vehicle_send('bob', dist, ang, max_step=100)
+
+            if self.testpoint is None:
+                self.testpoint = (int(disp_image.shape[0] * 0.9), disp_image.shape[1] // 2)
+
+            self.testpoint = (self.testpoint[0] + int(sr * self.display_scale), self.testpoint[1] + int(sc * self.display_scale))
+            cv2.circle(disp_image, (self.testpoint[1], self.testpoint[0]), 30, (0, 255, 0), 1)
 
         cv2.imshow('blockreduce_mask', resize(getGImages().mask * 255, width=1000))
-
         cv2.imshow('blockreduce_CMO', cv2.applyColorMap(resize(norm_uint8(getGImages().cmo), width=1000), cv2.COLORMAP_MAGMA))
 
         TRACKER = False
@@ -389,7 +473,7 @@ class Main:
     
             _bboxes = np.array(_bboxes)
 
-
+            (sr, sc) = pos
             tracks = self.tracker.update(_bboxes, confidences, (sc, sr))
 
             draw_tracks(disp_image, tracks, dotsize=1, colors=self.model.bbox_colors, display_scale=self.display_scale)
@@ -406,21 +490,6 @@ class Main:
             tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
             disp_image = np.vstack([tile_img, disp_image])
 
-        if self.testpoint is None:
-            self.testpoint = (int(disp_image.shape[0] * 0.9), disp_image.shape[1] // 2)
-
-        self.testpoint = (self.testpoint[0] + int(sr * self.display_scale), self.testpoint[1] + int(sc * self.display_scale))
-        cv2.circle(disp_image, (self.testpoint[1], self.testpoint[0]), 30, (0, 255, 0), 1)
-
-        # for i in range(len(bboxes)):
-        #     bboxes[i] = (bboxes[i] * self.display_scale).astype('int32')
-
-
-        # grab tiles form the src image, accounting for the display scale
-        # tiles = make_tile_list(self.model.fullres_img_tile_lst, tracks)
-
-
-
         if STORE_TILES:
             # logger.warning( " all_tiles.append(tiles)  will hog memory")
             for tl in tiles:
@@ -433,13 +502,14 @@ class Main:
 
 
 if __name__ == '__main__':
+    import argparse
     """
 
     """
     STORE_TILES = False
     STORE_LABELS = False
 
-    RECORD = False
+    # RECORD = False
     STOP_FRAME = None
 
     CONFIDENCE_THRESHOLD = 0.5
@@ -448,6 +518,7 @@ if __name__ == '__main__':
     USE_GPU = False
 
     USE_QGC = False
+    USE_TRACKER = False
     if USE_QGC:  # for position on map  ( special compiled version) should use mavlink message instead)
         from utils.qgcs_connect import ConnectQGC
     # method = 'CentroidKF_Tracker'
@@ -459,10 +530,19 @@ if __name__ == '__main__':
     # tracker = SORT(max_lost=3, tracker_output_format='mot_challenge', iou_threshold=0.3)
     # tracker = IOUTracker(max_lost=2, iou_threshold=0.5, min_detection_confidence=0.4, max_detection_confidence=0.7,
     #                      tracker_output_format='mot_challenge')
+    
+    if USE_TRACKER:
+        _tracker = Sort(max_age=5,
+                        min_hits=3,
+                        iou_threshold=0.2)
+    else:
+        _tracker = None
 
-    _tracker = Sort(max_age=5,
-                    min_hits=3,
-                    iou_threshold=0.2)
+    parser = argparse.ArgumentParser(description="Your program description")
+    parser.add_argument('-r', '--record', action='store_true', help='Enable recording', default=False)
+    args = parser.parse_args()
+
+    RECORD = args.record
 
     # home = str(Path.home())
     _model = CMO_Peak(confidence_threshold=0.1,
@@ -487,8 +567,15 @@ if __name__ == '__main__':
     home = str(Path.home())
 
     # if data path exists use it
-    path = home + '/data/maui-data/Karioitahi_09Feb2022/132MSDCF-28mm-f4'
+    path = home + '/data/maui-data/Karioitahi_09Feb2022/132MSDCF-28mm-f4' 
+    # path = home + '/data/maui-data/Karioitahi_09Feb2022/136MSDCF'
+    # path = home + '/data/maui-data/Karioitahi_15Jan2022/125MSDCF-landing'
+    # path = home + '/data/maui-data/Tairua_15Jan2022/116MSDCF'
+    # path = home + '/data/maui-data/Tairua_15Jan2022/109MSDCF'
+    # path = home + '/data/maui-data/karioitahi_13Aug2022/SonyA7C/103MSDCF'
+    path += '-use-local-path'
     if not os.path.exists(path):
+        print(f"Path {path} does not exist, using local path")
         path = "data/Karioitahi_09Feb2022/132MSDCF-28mm-f4"
 
     # USE_CAMERA = 'CAM=SONY'

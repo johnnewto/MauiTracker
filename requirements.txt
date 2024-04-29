@@ -1,8 +1,9 @@
-filterpy==1.4.5
+# filterpy==1.4.5
 imutils
 ipyfilechooser==0.6.0
-ipython
+# ipython
 keyboard==0.13.5
+matplotlib
 moviepy
 numpy
 opencv-python==4.7.0.72
@@ -10,6 +11,6 @@ Pillow
 PyTurboJPEG==1.7.3
 scipy
 scikit-image
-torch==2.2.2
-torchsummary
-torchvision==0.17.2
+#torch==2.2.2
+#torchsummary
+#torchvision==0.17.2

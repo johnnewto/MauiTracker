@@ -184,7 +184,7 @@ def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
     kernel = np.ones((5, 5), 'uint8')
     # edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel, iterations=1)
 
-    # cv2_img_show('find_sky_2-new_mask', labels)
+    cv2_img_show('find_sky_2-new_mask', labels)
 
     num_regions, labels, stats, centroids = cv2.connectedComponentsWithStats(labels)
 
@@ -194,17 +194,19 @@ def find_sky_2(gray_img_s, threshold=None, kernal_size=5):
         end = pos + stats[idx][3:1:-1]
         left_side = pos[1]
         right_side = end[1]
-        top_side = pos[0]
+        # top_side = pos[0]
         bot_side = end[0]
-        brightave2 = np.mean(gray_img_s[labels == idx])
+        # brightave2 = np.mean(gray_img_s[labels == idx])
 
-        # remove small regions ( area < 5%) that are not adjacent to bottom or left or right sides
-        # todo include this too # if area_ratio < 0.1 and bot_side < gray_img_s.shape[0] and left_side > 0 and right_side < gray_img_s.shape[1]:
+        # remove small regions ( area < 10%) that are not adjacent to bottom or left or right sides
         if area_ratio < 0.1:
-            brightmin = np.min(gray_img_s[labels == idx])
-            # print(brightmin, brightest)
-            if brightmin > 50:
+            if not (bot_side == gray_img_s.shape[0] or left_side == 0 or right_side == gray_img_s.shape[1]):    
                 labels[labels == idx] = 0
+
+            # brightmin = np.min(gray_img_s[labels == idx])
+            # # print(brightmin, brightest)
+            # if brightmin > 50:
+            #     labels[labels == idx] = 0
 
     labels[labels > 0] = 255
     labels = labels.astype('uint8')

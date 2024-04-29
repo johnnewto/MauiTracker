@@ -181,7 +181,7 @@ def count_pool(mat, K, L):
     NL = N // L
     return np.count_nonzero(mat[:MK * K, :NL * L].reshape(MK, K, NL, L), axis=(1, 3))
 
-def get_tile(img:np.ndarray, pos, tile_shape):
+def get_tile(img:np.ndarray, pos, tile_shape, copy=False):
     '''
     get a `tile` with values from `img` at `pos`,
     while accounting for the tile being off the edge of `img`.
@@ -216,7 +216,9 @@ def get_tile(img:np.ndarray, pos, tile_shape):
         assert np.all(tile.shape[:2] == tile_shape)
     except Exception as e:
         print(e)
-    return tile
+
+    return tile.copy() if copy else tile
+
 
 def scale_image(img, scale=0.5):
     if scale != 1.0:
