@@ -538,7 +538,7 @@ if __name__ == '__main__':
     else:
         _tracker = None
 
-    parser = argparse.ArgumentParser(description="Your program description")
+    parser = argparse.ArgumentParser(description="Tracking of small objects in video frames")
     parser.add_argument('-r', '--record', action='store_true', help='Enable recording', default=False)
     args = parser.parse_args()
 
