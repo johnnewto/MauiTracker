@@ -51,11 +51,10 @@ It uses a SORT MOT tracking algorithim
 
 With one of the windows in focus press spacebar to step, g to go continuously, d to change direction and q to quit
 
-### In use
 
 <video width="1280" height="720"  controls>
   <source src="data/Karioitahi_09Feb2022/132MSDCF-28mm-f4.mp4" type="video/mp4">
-Your browser does not support the video tag.
+  This wont show in github
 </video>
 
 
