@@ -318,7 +318,7 @@ class Main:
     def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
 
         (sr, sc) = pos
-        
+
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
         # disp_image = image.copy()
@@ -401,7 +401,7 @@ class Main:
             disp_image = np.vstack([tile_img, disp_image])
 
         else:
-            self.model.draw_bboxes(disp_image, self.model.bbwhs, None, None, display_scale=self.display_scale, text=True)
+            self.model.draw_bboxes(disp_image, self.model.bbwhs, None, None, display_scale=self.display_scale, text=True, thickness=8)
             tile_img = np.hstack(self.model.fullres_img_tile_lst)
             tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
             disp_image = np.vstack([tile_img, disp_image])

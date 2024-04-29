@@ -343,7 +343,7 @@ class CMO_Peak(Detector):
         #     return [], [], [], [], (sr, sc)
             # return np.array([]), np.array([]), np.array([]), np.array([]), (sr, sc)
 
-    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=4, alpha:typ.Union[float, None]=0.3):
+    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=6, alpha:typ.Union[float, None]=0.3):
         """
         Draw the bounding boxes about detected objects in the image.
 
@@ -383,15 +383,15 @@ class CMO_Peak(Detector):
             
             cv2.rectangle(overlay, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, thickness)
             if text:
-                font_size = 0.8
-                thickness = 2
+                _font_size = 0.8
+                _thickness = 2
                 label = f"{self.object_names[cid]} : {conf:.2f}"
                 label = f"{count}"
-                (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_size, thickness)
+                (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, _font_size, _thickness)
                 y_label = max(bb[1], label_height)
                 cv2.rectangle(overlay, (bb[0], y_label - label_height), (bb[0] + label_width, y_label + baseLine),
                              (255, 255, 255), cv2.FILLED)
-                cv2.putText(overlay, label, (bb[0], y_label+5), cv2.FONT_HERSHEY_SIMPLEX, font_size, clr, thickness)
+                cv2.putText(overlay, label, (bb[0], y_label+5), cv2.FONT_HERSHEY_SIMPLEX, _font_size, clr, _thickness)
                 count += 1
         
         if alpha is not None:
