@@ -15,6 +15,7 @@ import utils.pytorch_utils as ptu
 import torch
 from utils import parameters as pms
 import logging
+import typing as typ
 
 logging.basicConfig(format='%(asctime)-8s,%(msecs)-3d %(levelname)5s [%(filename)10s:%(lineno)3d] %(message)s',
                     datefmt='%H:%M:%S',
@@ -342,7 +343,7 @@ class CMO_Peak(Detector):
         #     return [], [], [], [], (sr, sc)
             # return np.array([]), np.array([]), np.array([]), np.array([]), (sr, sc)
 
-    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=2):
+    def draw_bboxes(self, image, bboxes, confidences, class_ids, display_scale=None, text=True, thickness=4, alpha:typ.Union[float, None]=0.3):
         """
         Draw the bounding boxes about detected objects in the image.
 
@@ -360,6 +361,9 @@ class CMO_Peak(Detector):
             confidences = [1.0 for bb in bboxes]
         if class_ids is None:
             class_ids = [i for i, bb in enumerate(bboxes)]
+
+        # support for alpha blending overlay
+        overlay = image.copy() if alpha is not None else image    
         count = 0
         for bb, conf, cid in zip(bboxes, confidences, class_ids):
             # clr = [int(c) for c in self.bbox_colors[cid]]
@@ -375,16 +379,23 @@ class CMO_Peak(Detector):
                 for i in range(len(bb)):
                     bb[i] = int(bb[i] * display_scale)
                 # bb[0], bb[1] = int(bb[0]*display_scale), int(bb[1]*display_scale)
-            cv2.rectangle(image, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, thickness)
+            
+            
+            cv2.rectangle(overlay, (bb[0], bb[1] ), (bb[0] + bb[2], bb[1] + bb[3]), clr, thickness)
             if text:
+                font_size = 0.8
+                thickness = 2
                 label = f"{self.object_names[cid]} : {conf:.2f}"
                 label = f"{count}"
-                (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                (label_width, label_height), baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_size, thickness)
                 y_label = max(bb[1], label_height)
-                cv2.rectangle(image, (bb[0], y_label - label_height), (bb[0] + label_width, y_label + baseLine),
+                cv2.rectangle(overlay, (bb[0], y_label - label_height), (bb[0] + label_width, y_label + baseLine),
                              (255, 255, 255), cv2.FILLED)
-                cv2.putText(image, label, (bb[0], y_label), cv2.FONT_HERSHEY_SIMPLEX, 0.5, clr, 1)
+                cv2.putText(overlay, label, (bb[0], y_label+5), cv2.FONT_HERSHEY_SIMPLEX, font_size, clr, thickness)
                 count += 1
+        
+        if alpha is not None:
+            cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
         return image
 
 

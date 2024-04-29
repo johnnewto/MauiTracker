@@ -294,23 +294,51 @@ class Main:
 
         time.sleep(0.5)
 
+    def overlay_mask(self, image, mask, color=(255,255,0), alpha=0.4):
+        """
+        Overlay the mask on the image.
+
+        Args:
+            image (numpy.ndarray): The image.
+            mask (numpy.ndarray): The mask.
+
+        Returns:
+            numpy.ndarray: The image with the mask overlayed.
+        """
+        # convert to rgb color
+        mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+        # mask_rgb = np.where(mask_rgb == [255, 255, 255], np.int8(color), mask_rgb)
+        # mask_rgb = mask_rgb * np.int8(color)
+        mask_rgb = np.where(mask_rgb == [255, 255, 255], np.int8(color), mask_rgb).astype('uint8')
+
+        # resize mask to image size
+        mask_rgb = cv2.resize(mask_rgb, (image.shape[1], image.shape[0]))
+        return cv2.addWeighted(mask_rgb, alpha, image, 1 , 0)
+        
     def display_results(self, image, frameNum, bboxes, bbwhs, confidences, class_ids, pos):
 
         (sr, sc) = pos
+        
         # the source image is very large so we reduce it to a more manageable size for display
         # disp_image = cv2.cvtColor(resize(image, width=self.display_width), cv2.COLOR_GRAY2BGR)
-        contours, hierarchy = cv2.findContours(getGImages().mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        # disp_image = resize(image, width=getGImages().small_gray.shape[1])
-        disp_image = image.copy()
+        # disp_image = image.copy()
+        disp_image = self.overlay_mask(image, getGImages().mask, alpha=0.3)
 
         display_scale = (image.shape[1] / getGImages().small_gray.shape[1], image.shape[0] / getGImages().small_gray.shape[0])  
 
-        # multiply the contours by the display_scale
-        contours = [np.squeeze((c * display_scale).astype('int32')) for c in contours]
+        CONTOURS = False
+        if CONTOURS:
+            contours, hierarchy = cv2.findContours(getGImages().mask * 255, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            # disp_image = resize(image, width=getGImages().small_gray.shape[1])
+    
+            # multiply the contours by the display_scale
+            contours = [np.squeeze((c * display_scale).astype('int32')) for c in contours]
 
-        for idx in range(len(contours)):
-            cv2.drawContours(disp_image, contours, idx, (255, 0, 0), 1)
-        disp_image = resize(disp_image, width=self.display_width)
+            for idx in range(len(contours)):
+                cv2.drawContours(disp_image, contours, idx, (255, 0, 0), 5)
+
+
+        # disp_image = resize(disp_image, width=self.display_width)
 
         angle_inc = sc * 54.4 / image.shape[1]
         self.heading_angle -= angle_inc
@@ -374,7 +402,9 @@ class Main:
 
         else:
             self.model.draw_bboxes(disp_image, self.model.bbwhs, None, None, display_scale=self.display_scale, text=True)
-
+            tile_img = np.hstack(self.model.fullres_img_tile_lst)
+            tile_img = resize(tile_img, width=self.display_width, inter=cv2.INTER_NEAREST)
+            disp_image = np.vstack([tile_img, disp_image])
 
         if self.testpoint is None:
             self.testpoint = (int(disp_image.shape[0] * 0.9), disp_image.shape[1] // 2)
