@@ -131,7 +131,6 @@ dmypy.json
 #vscode
 .idea/
 
-images/
 kml/
 scratch/
 old/
