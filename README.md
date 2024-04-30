@@ -57,6 +57,6 @@ With one of the windows in focus press spacebar to step, g to go continuously, d
 </video>
 
 
-[![Watch the video](images/mainview.png)](https://raw.githack.com/johnnewto/MauiTracker/video.html)
+[![This should show in github](images/mainview.png)](https://raw.githack.com/johnnewto/MauiTracker/main/video.html)
 
-[Watch the video](video.html)
+Note: using  https://raw.githack.com/ to serve both mp4 and html
