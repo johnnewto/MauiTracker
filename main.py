@@ -188,8 +188,8 @@ class Main:
         cv2.setWindowProperty(WindowName, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
 
         if self.record:
-            video = VideoWriter(self.path + '.mp4', fps=5.0)
-            print(f"Recording to {self.path}.mp4")
+            video = VideoWriter(self.path + '.mov', fps=5.0)
+            print(f"Recording to {self.path}.mov")
         self.sock.sendto(b"Start Record", ("127.0.0.1", 5005))
 
         first_run = True

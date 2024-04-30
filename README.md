@@ -59,3 +59,4 @@ With one of the windows in focus press spacebar to step, g to go continuously, d
 
 
 <!-- ![](images/mainview.png) -->
+[![Watch the video](https://i.stack.imgur.com/Vp2cE.png)](https://raw.githack.com/johnnewto/MauiTracker/main/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4.mov)
