@@ -51,10 +51,9 @@ It uses a SORT MOT tracking algorithim
 
 With one of the windows in focus press spacebar to step, g to go continuously, d to change direction and q to quit
 
-
 <video width="1280" height="720"  controls>
-  <source src="data/Karioitahi_09Feb2022/132MSDCF-28mm-f4.mp4" type="video/mp4">
-  This wont show in github
+  <source src="https://raw.githack.com/johnnewto/MauiTracker/main/data/Karioitahi_09Feb2022/132MSDCF-28mm-f4.mp4" type="video/mp4">
+  This should show in github
 </video>
 
 
